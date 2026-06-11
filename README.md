@@ -1,1 +1,1 @@
-# syd
+# Syd cli
