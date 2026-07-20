@@ -5,16 +5,16 @@ const help: Command = {
   description: "Show all available commands",
   run: (_args, ctx) => {
     const lines = Object.values(commands).map(
-      (c) => `/${c.name} — ${c.description}`,
+      (c) => `/${c.name}  ${c.description}`,
     );
     ctx.addSystemMessage(lines.join("\n"));
   },
 };
 
-const clear: Command = {
-  name: "clear",
-  description: "Clear the chat history",
-  run: (_args, ctx) => ctx.clearMessages(),
+const newChat: Command = {
+  name: "new",
+  description: "Start a new session chat",
+  run: (_args, ctx) => ctx.newSession(),
 };
 
 const rename: Command = {
@@ -51,7 +51,7 @@ const exit: Command = {
 
 export const commands: Record<string, Command> = {
   help: help,
-  clear: clear,
+  new: newChat,
   rename: rename,
   model: model,
   exit: exit,

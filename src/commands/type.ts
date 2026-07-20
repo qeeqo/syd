@@ -5,7 +5,7 @@ export type Message = {
 
 export type CommandContext = {
   addSystemMessage: (text: string) => void;
-  clearMessages: () => void;
+  newSession: () => void;
   setSessionTitle: (title: string) => void;
   setModel: (model: string) => void;
   exit: () => void;
