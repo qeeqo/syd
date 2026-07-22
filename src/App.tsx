@@ -2,6 +2,7 @@ import { useState } from "react";
 import ChatMain from "./components/chatMain";
 import ChatInputBox from "./components/chatInputBox";
 import { dispatch } from "./commands/registry";
+import { streamChat } from "./chat";
 import type { CommandContext, Message } from "./commands/type";
 
 export default function App() {
@@ -24,8 +25,36 @@ export default function App() {
     exit: () => process.exit(0),
   };
 
-  function handleSubmit(message: string) {
+  async function handleSubmit(message: string) {
     if (dispatch(message, ctx)) return;
+
+    const userMsg: Message = { role: "user", content: message };
+    const history = [...messages, userMsg].filter((m) => m.role !== "system");
+
+    setMessages((prev) => [
+      ...prev,
+      userMsg,
+      { role: "assistant", content: "" },
+    ]);
+
+    try {
+      await streamChat({
+        model,
+        messages: history.map(({ role, content }) => ({ role, content })),
+        onDelta: (delta) =>
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last || last.role !== "assistant") return prev;
+            return [
+              ...prev.slice(0, -1),
+              { ...last, content: last.content + delta },
+            ];
+          }),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      ctx.addSystemMessage(`error: ${msg}`);
+    }
   }
 
   return (
@@ -35,7 +64,7 @@ export default function App() {
       height="100%"
       backgroundColor="#0f1117"
     >
-      <ChatMain />
+      <ChatMain messages={messages} />
       <ChatInputBox
         title={sessionTitle}
         model={model}

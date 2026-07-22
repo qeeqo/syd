@@ -1,4 +1,8 @@
-export default function ChatMain() {
+import type { Message } from "../commands/type";
+
+type ChatMainProps = { messages: Message[] };
+
+export default function ChatMain({ messages }: ChatMainProps) {
   return (
     <box
       flexDirection="column"
@@ -15,8 +19,29 @@ export default function ChatMain() {
         flexDirection="column"
         flexGrow={1}
       >
-        <text fg="#f3f6ff">Hello Leo, this is sydcli.</text>
+        {messages.length === 0 ? (
+          <text fg="#f3f6ff">Hello Leo, this is sydcli.</text>
+        ) : (
+          messages.map((m, i) => (
+            <text key={i} fg={colorFor(m.role)}>
+              {prefixFor(m.role)}
+              {m.content}
+            </text>
+          ))
+        )}
       </box>
     </box>
   );
+}
+
+function colorFor(role: Message["role"]) {
+  if (role === "assistant") return "#8bb4ff";
+  if (role === "system") return "#6b7280";
+  return "#f3f6ff";
+}
+
+function prefixFor(role: Message["role"]) {
+  if (role === "user") return "> ";
+  if (role === "system") return "· ";
+  return "";
 }

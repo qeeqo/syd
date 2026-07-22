@@ -1,9 +1,21 @@
 // currently gemini supported only
 
-import { generateText } from "ai";
+import { streamText, type ModelMessage } from "ai";
 import { google } from "@ai-sdk/google";
 
-const { text } = await generateText({
-  model: "google/gemini-2.5-flash",
-  prompt: "Hello world",
-});
+export type StreamChatArgs = {
+  model: string;
+  messages: ModelMessage[];
+  onDelta: (chunk: string) => void;
+};
+
+export async function streamChat({ model, messages, onDelta }: StreamChatArgs) {
+  const result = streamText({
+    model: google(model),
+    messages,
+  });
+
+  for await (const chunk of result.textStream) {
+    onDelta(chunk);
+  }
+}
