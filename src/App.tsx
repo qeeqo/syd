@@ -2,18 +2,25 @@ import { useState } from "react";
 import ChatMain from "./components/chatMain";
 import ChatInputBox from "./components/chatInputBox";
 import { dispatch } from "./commands/registry";
-import type { CommandContext } from "./commands/type";
+import type { CommandContext, Message } from "./commands/type";
 
 export default function App() {
   const [sessionTitle, setSessionTitle] = useState("New Chat");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [model, setModel] = useState("gemini-2.0-flash");
 
   const ctx: CommandContext = {
-    addSystemMessage: (_text) => {},
+    addSystemMessage: (text) =>
+      setMessages((prev) => [...prev, { role: "system", content: text }]),
     newSession: () => {
-      setSessionTitle("New Chat"); // build an automatic title from converstation
+      setSessionTitle("New Chat");
+      setMessages([]);
     },
     setSessionTitle,
-    setModel: (_model) => {},
+    setModel: (next) => {
+      setModel(next);
+      ctx.addSystemMessage(`model set to ${next}`);
+    },
     exit: () => process.exit(0),
   };
 
@@ -29,7 +36,11 @@ export default function App() {
       backgroundColor="#0f1117"
     >
       <ChatMain />
-      <ChatInputBox title={sessionTitle} onSubmit={handleSubmit} />
+      <ChatInputBox
+        title={sessionTitle}
+        model={model}
+        onSubmit={handleSubmit}
+      />
     </box>
   );
 }

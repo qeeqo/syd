@@ -2,14 +2,17 @@ import { useState } from "react";
 
 type chatInputBoxProps = {
   title: string;
+  model: string;
   onSubmit: (message: string) => void;
 };
 
-export default function ChatInputBox({ title, onSubmit }: chatInputBoxProps) {
+export default function ChatInputBox({
+  title,
+  model,
+  onSubmit,
+}: chatInputBoxProps) {
   const [draft, setDraft] = useState("");
-  /*
-   * function title() ? I should create a function so when slash command /rename; it renames the session?
-   */
+
   function handleSubmit() {
     const message = draft.trim();
 
@@ -22,9 +25,9 @@ export default function ChatInputBox({ title, onSubmit }: chatInputBoxProps) {
   }
   return (
     <box
-      border
+      border={["top", "bottom"]}
       borderColor="#4f8cff"
-      title={` ${title} `}
+      title={` ${title}  ⋅${model} `}
       titleAlignment="right"
       titleColor="#8bb4ff"
       paddingX={1}
