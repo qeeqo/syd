@@ -12,6 +12,8 @@ export type CommandContext = {
   setModel: (model: string) => void;
   // No id → open the provider picker; id → switch directly (if key is set).
   setProvider: (id?: string) => void;
+  // Copy the most recent assistant response to the system clipboard.
+  copyLastResponse: () => void | Promise<void>;
   exit: () => void;
 };
 

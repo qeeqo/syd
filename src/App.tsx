@@ -5,6 +5,7 @@ import SessionPicker from "./components/sessionPicker";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
 import { saveApiKey, verifyApiKey } from "./auth";
+import { copyToClipboard } from "./clipboard";
 import { providers, isProviderId, hasApiKey } from "./providers";
 import type { Provider, ProviderId } from "./providers";
 import { dispatch } from "./commands/registry";
@@ -122,6 +123,29 @@ export default function App() {
         return;
       }
       applyProvider(providers[normalized]);
+    },
+    copyLastResponse: async () => {
+      // A mid-stream copy would grab a half-finished response.
+      if (isStreaming) {
+        ctx.addSystemMessage("wait for the current response to finish");
+        return;
+      }
+      const lastResponse = [...messages]
+        .reverse()
+        .find((m) => m.role === "assistant" && m.content.length > 0);
+      if (!lastResponse) {
+        ctx.addSystemMessage("no response to copy yet");
+        return;
+      }
+      try {
+        await copyToClipboard(lastResponse.content);
+        ctx.addSystemMessage(
+          `copied last response to clipboard (${lastResponse.content.length} chars)`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`copy failed: ${msg}`);
+      }
     },
     exit: () => process.exit(0),
   };

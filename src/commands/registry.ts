@@ -55,6 +55,12 @@ const provider: Command = {
   run: (args, ctx) => ctx.setProvider(args.trim() || undefined),
 };
 
+const copy: Command = {
+  name: "copy",
+  description: "Copy the latest response to the clipboard",
+  run: (_args, ctx) => ctx.copyLastResponse(),
+};
+
 const exit: Command = {
   name: "exit",
   description: "Quit sydcli",
@@ -68,6 +74,7 @@ export const commands: Record<string, Command> = {
   rename: rename,
   model: model,
   provider: provider,
+  copy: copy,
   exit: exit,
   quit: exit,
 };
