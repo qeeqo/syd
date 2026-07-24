@@ -3,12 +3,7 @@ import type { Command, CommandContext } from "./type.ts";
 const help: Command = {
   name: "help",
   description: "Show all available commands",
-  run: (_args, ctx) => {
-    const lines = Object.values(commands).map(
-      (c) => `/${c.name}  ${c.description}`,
-    );
-    ctx.addSystemMessage(lines.join("\n"));
-  },
+  run: (_args, ctx) => ctx.showHelp(),
 };
 
 const newChat: Command = {

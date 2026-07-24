@@ -14,6 +14,8 @@ export type CommandContext = {
   setProvider: (id?: string) => void;
   // Copy the most recent assistant response to the system clipboard.
   copyLastResponse: () => void | Promise<void>;
+  // Open the command-reference popup.
+  showHelp: () => void;
   exit: () => void;
 };
 

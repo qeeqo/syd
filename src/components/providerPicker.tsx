@@ -88,7 +88,6 @@ export default function ProviderPicker({
           </box>
         );
       })}
-      <text fg="#3d4761"> ↑↓ navigate · ↵ switch · esc dismiss</text>
     </box>
   );
 }

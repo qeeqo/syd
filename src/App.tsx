@@ -1,7 +1,9 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useRenderer } from "@opentui/react";
 import ChatMain from "./components/chatMain";
 import ChatInputBox from "./components/chatInputBox";
 import SessionPicker from "./components/sessionPicker";
+import HelpPopup from "./components/helpPopup";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
 import { saveApiKey, verifyApiKey } from "./auth";
@@ -20,6 +22,7 @@ import type { Session } from "./session";
 import type { CommandContext, Message } from "./commands/type";
 
 export default function App() {
+  const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   const [messages, setMessages] = useState<Message[]>([]);
   const [provider, setProvider] = useState<ProviderId>("google");
@@ -34,11 +37,19 @@ export default function App() {
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   // Non-null while the API-key paste prompt is open: the provider it's for.
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
+  // True while the /help popup is open.
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
   const metaRef = useRef<Session | null>(null);
   metaRef.current ??= createSession(provider, model);
+
+  // The most recent disk write — /exit awaits it so a save that's still
+  // in flight isn't cut off by process.exit.
+  const pendingSave = useRef<Promise<void>>(Promise.resolve());
+  // Report a save failure once, not on every retriggered save.
+  const saveFailed = useRef(false);
 
   // Assemble the current durable Session from live state + stable metadata.
   function buildSession(msgs: Message[]): Session {
@@ -54,6 +65,30 @@ export default function App() {
       updatedAt: Date.now(),
     };
   }
+
+  // Single save point: persist whenever session-shaping state settles.
+  // Only a real conversation is worth a file — command-only activity
+  // (/help, a /rename before any chat) never touches disk, so sessions
+  // without at least one user/assistant message don't litter.
+  useEffect(() => {
+    if (isStreaming) return;
+    if (!messages.some((m) => m.role !== "system")) return;
+    pendingSave.current = saveSession(buildSession(messages))
+      .then(() => {
+        saveFailed.current = false;
+      })
+      .catch((err) => {
+        if (saveFailed.current) return;
+        saveFailed.current = true;
+        const msg = err instanceof Error ? err.message : String(err);
+        setMessages((prev) => [
+          ...prev,
+          { role: "system", content: `failed to save session: ${msg}` },
+        ]);
+      });
+    // buildSession only reads state already listed here (plus stable refs).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, sessionTitle, provider, model, isStreaming]);
 
   const ctx: CommandContext = {
     addSystemMessage: (text) =>
@@ -104,7 +139,7 @@ export default function App() {
       }
       applySession(matches[0]);
     },
-    setSessionTitle,
+    setSessionTitle: (title) => setSessionTitle(title),
     setModel: (next) => {
       setModel(next);
       ctx.addSystemMessage(`model set to ${next}`);
@@ -124,6 +159,7 @@ export default function App() {
       }
       applyProvider(providers[normalized]);
     },
+    showHelp: () => setHelpOpen(true),
     copyLastResponse: async () => {
       // A mid-stream copy would grab a half-finished response.
       if (isStreaming) {
@@ -147,7 +183,14 @@ export default function App() {
         ctx.addSystemMessage(`copy failed: ${msg}`);
       }
     },
-    exit: () => process.exit(0),
+    exit: () => {
+      // Let an in-flight session write land before killing the process —
+      // process.exit would otherwise cut it off and lose the last change.
+      void pendingSave.current.finally(() => {
+        renderer.destroy();
+        process.exit(0);
+      });
+    },
   };
 
   // Single place a provider switch happens — shared by the picker popup and
@@ -165,7 +208,9 @@ export default function App() {
     setProvider(next.id);
     // The old provider's model id is meaningless here — adopt the default.
     setModel(next.defaultModel);
-    ctx.addSystemMessage(`provider set to ${next.label} (${next.defaultModel})`);
+    ctx.addSystemMessage(
+      `provider set to ${next.label} (${next.defaultModel})`,
+    );
   }
 
   // Key pasted into the prompt: verify it against the provider's API first,
@@ -215,8 +260,7 @@ export default function App() {
     if (dispatch(message, ctx)) return;
 
     const userMsg: Message = { role: "user", content: message };
-    const base = [...messages, userMsg];
-    const history = base.filter((m) => m.role !== "system");
+    const history = [...messages, userMsg].filter((m) => m.role !== "system");
 
     setMessages((prev) => [
       ...prev,
@@ -224,7 +268,8 @@ export default function App() {
       { role: "assistant", content: "" },
     ]);
 
-    let assistant = "";
+    // The save effect skips while streaming (no per-token writes) and
+    // persists the finished transcript once this flips back to false.
     setIsStreaming(true);
     try {
       await streamChat({
@@ -232,7 +277,6 @@ export default function App() {
         model,
         messages: history.map(({ role, content }) => ({ role, content })),
         onDelta: (delta) => {
-          assistant += delta;
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (!last || last.role !== "assistant") return prev;
@@ -246,21 +290,8 @@ export default function App() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       ctx.addSystemMessage(`error: ${msg}`);
-      return;
     } finally {
       setIsStreaming(false);
-    }
-
-    // Turn complete → persist the full transcript once (not per-token).
-    const finalMessages: Message[] = [
-      ...base,
-      { role: "assistant", content: assistant },
-    ];
-    try {
-      await saveSession(buildSession(finalMessages));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      ctx.addSystemMessage(`failed to save session: ${msg}`);
     }
   }
 
@@ -278,7 +309,10 @@ export default function App() {
         // Unfocus while a popup is open so keystrokes can't leak into the
         // draft; the popup owns the keyboard instead.
         focused={
-          pickerSessions === null && !providerPickerOpen && keyPrompt === null
+          pickerSessions === null &&
+          !providerPickerOpen &&
+          keyPrompt === null &&
+          !helpOpen
         }
         onSubmit={handleSubmit}
       />
@@ -322,6 +356,19 @@ export default function App() {
             }}
             onDismiss={() => setProviderPickerOpen(false)}
           />
+        </box>
+      )}
+      {helpOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <HelpPopup onDismiss={() => setHelpOpen(false)} />
         </box>
       )}
       {keyPrompt && (

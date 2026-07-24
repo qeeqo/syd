@@ -105,13 +105,16 @@ export default function SessionPicker({
             <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>{title}</text>
             <text fg={isSelected ? "#9fb2d8" : "#6b7280"}>
               {"  "}
-              {session.messages.length} msgs · {formatAge(session.updatedAt)}
+              {formatAge(session.updatedAt)}
             </text>
           </box>
         );
       })}
       {hiddenBelow > 0 && <text fg="#4b5674"> ↓ {hiddenBelow} more</text>}
-      <text fg="#3d4761"> ↑↓ navigate · ↵ resume · esc dismiss</text>
+      {/* <text fg="#3d4761" marginTop={1}> */}
+      {/*   {" "} */}
+      {/*   ↑↓ navigate · ↵ resume · esc dismiss */}
+      {/* </text> */}
     </box>
   );
 }

@@ -86,9 +86,13 @@ export default function ApiKeyPrompt({
       </text>
       {error && <text fg="#b3564f">{error}</text>}
       {verifying ? (
-        <text fg="#c9a24f">verifying key with {provider.label}…</text>
+        <text fg="#c9a24f" marginTop={1}>
+          verifying key with {provider.label}…
+        </text>
       ) : (
-        <text fg="#3d4761">↵ verify & save · esc cancel · stored in ~/.sydcli (owner-only)</text>
+        <text fg="#3d4761" marginTop={1}>
+          ↵ verify & save · esc cancel · stored in ~/.sydcli (owner-only)
+        </text>
       )}
     </box>
   );

@@ -63,7 +63,7 @@ export default function CommandSuggestions({
           {hiddenBelow > 0 ? ` ↓ ${hiddenBelow} more` : " "}
         </text>
       )}
-      <text fg="#3d4761">
+      <text fg="#3d4761" marginTop={1}>
         {" "}
         ↑↓ navigate · ↵ run · tab complete · esc dismiss
       </text>
