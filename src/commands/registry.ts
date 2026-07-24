@@ -49,6 +49,12 @@ const model: Command = {
   },
 };
 
+const provider: Command = {
+  name: "provider",
+  description: "Switch AI provider (google, anthropic, openai)",
+  run: (args, ctx) => ctx.setProvider(args.trim() || undefined),
+};
+
 const exit: Command = {
   name: "exit",
   description: "Quit sydcli",
@@ -61,6 +67,7 @@ export const commands: Record<string, Command> = {
   resume: resume,
   rename: rename,
   model: model,
+  provider: provider,
   exit: exit,
   quit: exit,
 };

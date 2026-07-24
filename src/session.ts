@@ -6,10 +6,12 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readdir, rename, unlink } from "node:fs/promises";
 import type { Message } from "./commands/type.ts";
+import { isProviderId, type ProviderId } from "./providers.ts";
 
 export type Session = {
   id: string;
   title: string;
+  provider: ProviderId;
   model: string;
   messages: Message[];
   cwd: string;
@@ -48,20 +50,38 @@ function isMessage(value: unknown): value is Message {
   );
 }
 
-function isSession(value: unknown): value is Session {
-  if (typeof value !== "object" || value === null) return false;
+// Validate + normalize a raw disk value into a Session, or null if invalid.
+// `provider` may be absent (files saved before multi-provider support) and
+// defaults to google; a *present but unrecognized* provider fails the parse —
+// silently rerouting a transcript to a different provider would be worse.
+function parseSession(value: unknown): Session | null {
+  if (typeof value !== "object" || value === null) return null;
   const s = value as Record<string, unknown>;
-  return (
+
+  const valid =
     typeof s.id === "string" &&
     isValidSessionId(s.id) &&
     typeof s.title === "string" &&
+    (s.provider === undefined ||
+      (typeof s.provider === "string" && isProviderId(s.provider))) &&
     typeof s.model === "string" &&
     Array.isArray(s.messages) &&
     s.messages.every(isMessage) &&
     typeof s.cwd === "string" &&
     typeof s.createdAt === "number" &&
-    typeof s.updatedAt === "number"
-  );
+    typeof s.updatedAt === "number";
+  if (!valid) return null;
+
+  return {
+    id: s.id as string,
+    title: s.title as string,
+    provider: (s.provider as ProviderId | undefined) ?? "google",
+    model: s.model as string,
+    messages: s.messages as Message[],
+    cwd: s.cwd as string,
+    createdAt: s.createdAt as number,
+    updatedAt: s.updatedAt as number,
+  };
 }
 
 async function ensureDir() {
@@ -70,11 +90,12 @@ async function ensureDir() {
 
 // In-memory factory — does NOT touch disk. A session is only persisted once
 // it has content (see saveSession callers), so we don't litter empty files.
-export function createSession(model: string): Session {
+export function createSession(provider: ProviderId, model: string): Session {
   const now = Date.now();
   return {
     id: crypto.randomUUID(),
     title: "New Chat",
+    provider,
     model,
     messages: [],
     cwd: process.cwd(),
@@ -100,7 +121,7 @@ export async function loadSession(id: string): Promise<Session | null> {
   if (!isValidSessionId(id)) return null;
   try {
     const data: unknown = await Bun.file(filePath(id)).json();
-    return isSession(data) ? data : null;
+    return parseSession(data);
   } catch {
     return null;
   }
@@ -121,9 +142,10 @@ export async function listSessions(cwd?: string): Promise<Session[]> {
     if (!name.endsWith(".json")) continue;
     try {
       const data: unknown = await Bun.file(join(SESSIONS_DIR, name)).json();
-      if (!isSession(data)) continue;
-      if (cwd && data.cwd !== cwd) continue;
-      sessions.push(data);
+      const session = parseSession(data);
+      if (!session) continue;
+      if (cwd && session.cwd !== cwd) continue;
+      sessions.push(session);
     } catch {
       // skip unreadable/corrupt files rather than crash the whole list
     }
