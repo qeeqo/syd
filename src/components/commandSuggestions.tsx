@@ -15,20 +15,15 @@ export default function CommandSuggestions({
 }: CommandSuggestionsProps) {
   const total = items.length;
 
-  // Window start: keep the selected row visible, biased toward the middle.
-  const start =
-    total <= MAX_VISIBLE
-      ? 0
-      : Math.min(
-          Math.max(0, selectedIndex - Math.floor(MAX_VISIBLE / 2)),
-          total - MAX_VISIBLE,
-        );
+  // Window start: only scroll once the selection would fall past the last
+  // visible row. Until then the window stays at 0, so the popup's contents
+  // don't shift while arrowing through the first page.
+  const start = Math.max(0, selectedIndex - (MAX_VISIBLE - 1));
   const visible = items.slice(start, start + MAX_VISIBLE);
 
   // Align descriptions into a column by padding names to the widest name.
   const nameWidth = items.reduce((w, c) => Math.max(w, c.name.length), 0);
 
-  const hiddenAbove = start;
   const hiddenBelow = total - (start + visible.length);
 
   return (
@@ -41,7 +36,6 @@ export default function CommandSuggestions({
       flexShrink={0}
       marginBottom={0}
     >
-      {hiddenAbove > 0 && <text fg="#4b5674"> ↑ {hiddenAbove} more</text>}
       {visible.map((cmd, i) => {
         const selected = start + i === selectedIndex;
         return (
@@ -61,7 +55,14 @@ export default function CommandSuggestions({
           </box>
         );
       })}
-      {hiddenBelow > 0 && <text fg="#4b5674"> ↓ {hiddenBelow} more</text>}
+      {/* Always occupy this row while the list overflows, even at "0 more" —
+          a conditional row would change the popup height mid-scroll and make
+          the whole box jump. Blank keeps the height constant. */}
+      {total > MAX_VISIBLE && (
+        <text fg="#4b5674">
+          {hiddenBelow > 0 ? ` ↓ ${hiddenBelow} more` : " "}
+        </text>
+      )}
       <text fg="#3d4761">
         {" "}
         ↑↓ navigate · ↵ run · tab complete · esc dismiss
