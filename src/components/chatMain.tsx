@@ -4,13 +4,7 @@ type ChatMainProps = { messages: Message[] };
 
 export default function ChatMain({ messages }: ChatMainProps) {
   return (
-    <box
-      flexDirection="column"
-      gap={1}
-      padding={1}
-      width="100%"
-      flexGrow={1}
-    >
+    <box flexDirection="column" gap={1} padding={1} width="100%" flexGrow={1}>
       <box
         title=" sydcli "
         titleColor="#8bb4ff"

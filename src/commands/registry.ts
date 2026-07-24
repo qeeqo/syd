@@ -17,6 +17,12 @@ const newChat: Command = {
   run: (_args, ctx) => ctx.newSession(),
 };
 
+const resume: Command = {
+  name: "resume",
+  description: "Resume the most recent session in this directory",
+  run: (_args, ctx) => ctx.resumeSession(),
+};
+
 const rename: Command = {
   name: "rename",
   description: "Rename the current session",
@@ -52,6 +58,7 @@ const exit: Command = {
 export const commands: Record<string, Command> = {
   help: help,
   new: newChat,
+  resume: resume,
   rename: rename,
   model: model,
   exit: exit,

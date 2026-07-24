@@ -6,6 +6,7 @@ export type Message = {
 export type CommandContext = {
   addSystemMessage: (text: string) => void;
   newSession: () => void;
+  resumeSession: () => void | Promise<void>;
   setSessionTitle: (title: string) => void;
   setModel: (model: string) => void;
   exit: () => void;

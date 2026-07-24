@@ -24,18 +24,15 @@ export default function ChatInputBox({
     setDraft("");
   }
   return (
-    <box
-      border={["top", "bottom"]}
-      borderColor="#4f8cff"
-      title={` ${title}  ⋅${model} `}
-      titleAlignment="right"
-      titleColor="#8bb4ff"
-      paddingX={1}
-      paddingY={1}
-      flexDirection="row"
-      height={5}
-    >
-      <box paddingX={1} flexGrow={1} justifyContent="center">
+    <box flexDirection="column" flexShrink={0} marginBottom={0}>
+      <box
+        border={["top", "bottom"]}
+        borderColor="#4f8cff"
+        title={` ${title} `}
+        titleAlignment="right"
+        titleColor="#8bb4ff"
+        flexDirection="column"
+      >
         <input
           value={draft}
           placeholder="Ask syd anything..."
@@ -43,6 +40,9 @@ export default function ChatInputBox({
           onInput={setDraft}
           onSubmit={handleSubmit}
         />
+      </box>
+      <box alignItems="flex-end">
+        <text fg="#8bb4ff">⋅{model}</text>
       </box>
     </box>
   );
