@@ -65,6 +65,11 @@ export const commands: Record<string, Command> = {
   quit: exit,
 };
 
+// Unique commands for the suggestion palette — the `commands` record maps
+// several keys to the same object (e.g. quit → exit), so dedupe by reference
+// to avoid showing an alias as its own entry. Insertion order is preserved.
+export const commandList: Command[] = [...new Set(Object.values(commands))];
+
 export function dispatch(input: string, ctx: CommandContext) {
   if (!input.startsWith("/")) return false;
 

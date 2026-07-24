@@ -11,6 +11,10 @@ export default function App() {
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   const [messages, setMessages] = useState<Message[]>([]);
   const [model, setModel] = useState("gemini-3.6-flash");
+  // True only while a model response is actively streaming. Drives the
+  // markdown renderer's `streaming` mode on the in-flight assistant turn so it
+  // finalizes trailing-token parsing once the turn completes.
+  const [isStreaming, setIsStreaming] = useState(false);
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
@@ -78,6 +82,7 @@ export default function App() {
     ]);
 
     let assistant = "";
+    setIsStreaming(true);
     try {
       await streamChat({
         model,
@@ -98,6 +103,8 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       ctx.addSystemMessage(`error: ${msg}`);
       return;
+    } finally {
+      setIsStreaming(false);
     }
 
     // Turn complete → persist the full transcript once (not per-token).
@@ -120,7 +127,7 @@ export default function App() {
       height="100%"
       backgroundColor="#0f1117"
     >
-      <ChatMain messages={messages} />
+      <ChatMain messages={messages} streaming={isStreaming} />
       <ChatInputBox
         title={sessionTitle}
         model={model}
