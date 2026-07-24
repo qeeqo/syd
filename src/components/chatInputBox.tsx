@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { TextAttributes } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { commandList } from "../commands/registry";
 import CommandSuggestions from "./commandSuggestions";
@@ -7,6 +6,8 @@ import CommandSuggestions from "./commandSuggestions";
 type chatInputBoxProps = {
   title: string;
   model: string;
+  // False while a popup (e.g. the /resume picker) owns the keyboard.
+  focused: boolean;
   onSubmit: (message: string) => void;
 };
 
@@ -22,6 +23,7 @@ function commandQuery(draft: string): string | null {
 export default function ChatInputBox({
   title,
   model,
+  focused,
   onSubmit,
 }: chatInputBoxProps) {
   const [draft, setDraft] = useState("");
@@ -114,7 +116,7 @@ export default function ChatInputBox({
           <input
             value={draft}
             placeholder="Ask syd anything..."
-            focused
+            focused={focused}
             paddingLeft={1}
             flexGrow={1}
             onInput={handleInput}

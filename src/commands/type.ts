@@ -6,7 +6,8 @@ export type Message = {
 export type CommandContext = {
   addSystemMessage: (text: string) => void;
   newSession: () => void;
-  resumeSession: () => void | Promise<void>;
+  // No id → list resumable sessions; id (or unique prefix) → resume that one.
+  resumeSession: (id?: string) => void | Promise<void>;
   setSessionTitle: (title: string) => void;
   setModel: (model: string) => void;
   exit: () => void;

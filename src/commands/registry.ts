@@ -19,8 +19,8 @@ const newChat: Command = {
 
 const resume: Command = {
   name: "resume",
-  description: "Resume the most recent session in this directory",
-  run: (_args, ctx) => ctx.resumeSession(),
+  description: "List sessions in this directory, or resume one by id",
+  run: (args, ctx) => ctx.resumeSession(args.trim() || undefined),
 };
 
 const rename: Command = {
