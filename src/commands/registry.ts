@@ -33,15 +33,10 @@ const rename: Command = {
 
 const model: Command = {
   name: "model",
-  description: "Switch the active model",
-  run: (args, ctx) => {
-    const name = args.trim();
-    if (!name) {
-      ctx.addSystemMessage("usage: /model <model-name>");
-      return;
-    }
-    ctx.setModel(name);
-  },
+  description: "Pick a model (live list), or switch directly by name",
+  // No arg → open the picker (live models for the current provider); an arg
+  // → switch directly, which stays scriptable and works offline.
+  run: (args, ctx) => ctx.setModel(args.trim() || undefined),
 };
 
 const provider: Command = {

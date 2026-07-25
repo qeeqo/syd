@@ -24,13 +24,26 @@ export type Provider = {
   // provider's model id would be meaningless here.
   defaultModel: string;
   resolve: (model: string) => LanguageModel;
-  // Cheap authenticated GET (list-models) used to verify a pasted key
-  // before it's stored. Costs nothing on all three providers.
+  // Cheap authenticated GET (list-models) used both to verify a pasted key
+  // before it's stored AND to populate the live model list. Costs nothing on
+  // all three providers.
   verifyRequest: (key: string) => {
     url: string;
     headers: Record<string, string>;
   };
+  // Parse the list-models response body into chat-capable model ids. Each
+  // provider returns a different shape; `json` is untrusted (unknown), so
+  // every access is defensive. Returns [] on anything unexpected.
+  parseModels: (json: unknown) => string[];
 };
+
+// Narrow an untrusted value to an array of records, for defensive parsing.
+function asRecords(value: unknown): Record<string, unknown>[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (e): e is Record<string, unknown> => typeof e === "object" && e !== null,
+  );
+}
 
 export const providers: Record<ProviderId, Provider> = {
   google: {
@@ -43,6 +56,23 @@ export const providers: Record<ProviderId, Provider> = {
       url: "https://generativelanguage.googleapis.com/v1beta/models",
       headers: { "x-goog-api-key": key },
     }),
+    // Google: { models: [{ name: "models/gemini-…", supportedGenerationMethods }] }.
+    // Keep only text-chat models — those advertising generateContent, minus
+    // the media/embedding variants that also list it (tts, image, embedding…).
+    parseModels: (json) => {
+      const models = asRecords((json as { models?: unknown })?.models);
+      const skip = /embedding|aqa|-tts|image|imagen|veo|lyria|robotics/i;
+      return models
+        .filter((m) => {
+          const methods = m.supportedGenerationMethods;
+          return (
+            Array.isArray(methods) && methods.includes("generateContent")
+          );
+        })
+        .map((m) => (typeof m.name === "string" ? m.name : ""))
+        .map((name) => name.replace(/^models\//, ""))
+        .filter((name) => name.length > 0 && !skip.test(name));
+    },
   },
   anthropic: {
     id: "anthropic",
@@ -54,6 +84,12 @@ export const providers: Record<ProviderId, Provider> = {
       url: "https://api.anthropic.com/v1/models",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01" },
     }),
+    // Anthropic: { data: [{ id: "claude-…", type: "model" }] }. Every entry
+    // is a chat model, so no filtering — just pull the ids.
+    parseModels: (json) =>
+      asRecords((json as { data?: unknown })?.data)
+        .map((m) => (typeof m.id === "string" ? m.id : ""))
+        .filter((id) => id.length > 0),
   },
   openai: {
     id: "openai",
@@ -65,6 +101,17 @@ export const providers: Record<ProviderId, Provider> = {
       url: "https://api.openai.com/v1/models",
       headers: { Authorization: `Bearer ${key}` },
     }),
+    // OpenAI: { data: [{ id: "gpt-…" }] } — but the list mixes in embeddings,
+    // audio, image, and moderation models with no "is chat" flag. A denylist
+    // (not an allowlist) so new gpt-*/o-* chat models appear automatically;
+    // we only need to exclude the known non-chat families.
+    parseModels: (json) => {
+      const skip =
+        /embedding|whisper|tts|audio|realtime|moderation|dall-e|image|davinci|babbage|transcribe|search|codex-mini/i;
+      return asRecords((json as { data?: unknown })?.data)
+        .map((m) => (typeof m.id === "string" ? m.id : ""))
+        .filter((id) => id.length > 0 && !skip.test(id));
+    },
   },
 };
 

@@ -21,7 +21,9 @@ export type CommandContext = {
   // No id → list resumable sessions; id (or unique prefix) → resume that one.
   resumeSession: (id?: string) => void | Promise<void>;
   setSessionTitle: (title: string) => void;
-  setModel: (model: string) => void;
+  // No name → open the model picker for the current provider; name → switch
+  // directly to that model.
+  setModel: (model?: string) => void;
   // No id → open the provider picker; id → switch directly (if key is set).
   setProvider: (id?: string) => void;
   // Copy the most recent assistant response to the system clipboard.

@@ -7,10 +7,12 @@ import HelpPopup from "./components/helpPopup";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
 import ApprovalPrompt from "./components/approvalPrompt";
+import ModelPicker from "./components/modelPicker";
 import { saveApiKey, verifyApiKey } from "./auth";
 import { copyToClipboard } from "./clipboard";
 import { providers, isProviderId, hasApiKey } from "./providers";
 import type { Provider, ProviderId } from "./providers";
+import { primeModels } from "./models";
 import { dispatch } from "./commands/registry";
 import { streamChat, type ApprovalRequest } from "./chat";
 import { describeToolEvent } from "./tools";
@@ -41,6 +43,8 @@ export default function App() {
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
   // True while the /help popup is open.
   const [helpOpen, setHelpOpen] = useState(false);
+  // True while the /model picker popup is open.
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   // Non-null while the model waits on a write approval: the request being
   // shown, plus the resolver that un-pauses the stream with the decision.
   const [approval, setApproval] = useState<{
@@ -52,6 +56,15 @@ export default function App() {
   // re-renders without triggering them. Lazily created on first render.
   const metaRef = useRef<Session | null>(null);
   metaRef.current ??= createSession(provider, model);
+
+  // Warm the model cache once at startup for the active provider if its key
+  // is already present (from a prior session) — makes the first /model open
+  // instant. Fire-and-forget; a fetch failure just falls back to on-open.
+  useEffect(() => {
+    if (hasApiKey(providers[provider])) primeModels(provider);
+    // Intentionally run once for the initial provider only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The most recent disk write — /exit awaits it so a save that's still
   // in flight isn't cut off by process.exit.
@@ -149,6 +162,11 @@ export default function App() {
     },
     setSessionTitle: (title) => setSessionTitle(title),
     setModel: (next) => {
+      // No name → open the live-model picker for the current provider.
+      if (!next) {
+        setModelPickerOpen(true);
+        return;
+      }
       setModel(next);
       ctx.addSystemMessage(`model set to ${next}`);
     },
@@ -245,6 +263,9 @@ export default function App() {
     }
     setKeyPrompt(null);
     ctx.addSystemMessage(`API key verified and saved for ${target.label}`);
+    // The key is now in env — warm the model cache so the /model picker is
+    // instant on first open (this reuses the fetch, not a second round-trip).
+    primeModels(target.id);
     applyProvider(target);
     return null;
   }
@@ -360,6 +381,7 @@ export default function App() {
           !providerPickerOpen &&
           keyPrompt === null &&
           !helpOpen &&
+          !modelPickerOpen &&
           approval === null
         }
         onSubmit={handleSubmit}
@@ -433,6 +455,27 @@ export default function App() {
             provider={keyPrompt}
             onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
             onCancel={() => setKeyPrompt(null)}
+          />
+        </box>
+      )}
+      {modelPickerOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <ModelPicker
+            provider={providers[provider]}
+            current={model}
+            onSelect={(next) => {
+              setModelPickerOpen(false);
+              ctx.setModel(next);
+            }}
+            onDismiss={() => setModelPickerOpen(false)}
           />
         </box>
       )}
