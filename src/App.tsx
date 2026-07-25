@@ -72,6 +72,12 @@ export default function App() {
   // Report a save failure once, not on every retriggered save.
   const saveFailed = useRef(false);
 
+  // True while a provider selection is mid-flight: set when a provider is
+  // chosen from the picker, consumed once that provider is actually active
+  // (which may be after a key-paste detour) to open the model picker. Makes
+  // provider → model one connected flow. Cleared if the user backs out.
+  const openModelAfterProvider = useRef(false);
+
   // Assemble the current durable Session from live state + stable metadata.
   function buildSession(msgs: Message[]): Session {
     const meta = metaRef.current!;
@@ -224,19 +230,31 @@ export default function App() {
   // switch completes after the key is saved.
   function applyProvider(next: Provider) {
     if (!hasApiKey(next)) {
+      // Detour through the key-paste prompt; the flag persists so the model
+      // picker still opens once the key lands (handleKeySubmit re-applies).
       setKeyPrompt(next);
       return;
     }
-    if (next.id === provider) {
-      ctx.addSystemMessage(`already on ${next.label}`);
-      return;
+    // Chosen from the provider picker → continue into the model picker so the
+    // user can pick a model for the provider they just landed on.
+    const flowingToModelPicker = openModelAfterProvider.current;
+    if (next.id !== provider) {
+      setProvider(next.id);
+      // The old provider's model id is meaningless here — adopt the default.
+      setModel(next.defaultModel);
+      // Only announce on the direct /provider <id> path. In the picker flow
+      // the model picker opening is the feedback; a line here would just be
+      // noise (and "already on …" for a no-op switch is pure spam), so skip it.
+      if (!flowingToModelPicker) {
+        ctx.addSystemMessage(
+          `provider set to ${next.label} (${next.defaultModel})`,
+        );
+      }
     }
-    setProvider(next.id);
-    // The old provider's model id is meaningless here — adopt the default.
-    setModel(next.defaultModel);
-    ctx.addSystemMessage(
-      `provider set to ${next.label} (${next.defaultModel})`,
-    );
+    if (flowingToModelPicker) {
+      openModelAfterProvider.current = false;
+      setModelPickerOpen(true);
+    }
   }
 
   // Key pasted into the prompt: verify it against the provider's API first,
@@ -422,9 +440,15 @@ export default function App() {
             current={provider}
             onSelect={(next) => {
               setProviderPickerOpen(false);
+              // Selecting a provider flows on into the model picker.
+              openModelAfterProvider.current = true;
               applyProvider(next);
             }}
-            onDismiss={() => setProviderPickerOpen(false)}
+            onDismiss={() => {
+              // Backing out goes to chat, not on to the model picker.
+              openModelAfterProvider.current = false;
+              setProviderPickerOpen(false);
+            }}
           />
         </box>
       )}
@@ -454,7 +478,12 @@ export default function App() {
           <ApiKeyPrompt
             provider={keyPrompt}
             onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
-            onCancel={() => setKeyPrompt(null)}
+            onCancel={() => {
+              // Abandoning the key paste also abandons the pending model-picker
+              // handoff — otherwise it would fire on the next provider switch.
+              openModelAfterProvider.current = false;
+              setKeyPrompt(null);
+            }}
           />
         </box>
       )}
@@ -475,7 +504,12 @@ export default function App() {
               setModelPickerOpen(false);
               ctx.setModel(next);
             }}
-            onDismiss={() => setModelPickerOpen(false)}
+            // esc closes the model picker and opens the provider picker, so
+            // the two read as one connected flow.
+            onSwitchProvider={() => {
+              setModelPickerOpen(false);
+              setProviderPickerOpen(true);
+            }}
           />
         </box>
       )}

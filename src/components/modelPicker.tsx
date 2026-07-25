@@ -7,7 +7,7 @@ type ModelPickerProps = {
   provider: Provider;
   current: string;
   onSelect: (model: string) => void;
-  onDismiss: () => void;
+  onSwitchProvider: () => void;
 };
 
 // How many rows are visible at once; the list scrolls to keep the highlight
@@ -18,7 +18,7 @@ export default function ModelPicker({
   provider,
   current,
   onSelect,
-  onDismiss,
+  onSwitchProvider,
 }: ModelPickerProps) {
   // undefined while the first fetch is in flight; set once it resolves.
   const [result, setResult] = useState<FetchModelsResult | undefined>();
@@ -70,7 +70,7 @@ export default function ModelPicker({
         break;
       case "escape":
         key.preventDefault();
-        onDismiss();
+        onSwitchProvider();
         break;
     }
   });
@@ -147,6 +147,12 @@ export default function ModelPicker({
           })}
         </box>
       )}
+
+      {/* Footer hints — esc is repurposed to hop to the provider picker so
+          the user can change provider without leaving the /model flow. */}
+      <text fg="#5b6472" marginTop={1}>
+        ↵ select ⋅ esc switch provider
+      </text>
     </box>
   );
 }

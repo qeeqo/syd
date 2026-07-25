@@ -82,7 +82,9 @@ export default function ApiKeyPrompt({
       />
       {/* Visible feedback: bullets + length, never the key itself. */}
       <text fg="#8bb4ff">
-        {draft.length > 0 ? `${"•".repeat(Math.min(draft.length, 40))}  (${draft.length} chars)` : " "}
+        {draft.length > 0
+          ? `${"•".repeat(Math.min(draft.length, 40))}  (${draft.length} chars)`
+          : " "}
       </text>
       {error && <text fg="#b3564f">{error}</text>}
       {verifying ? (
@@ -91,7 +93,7 @@ export default function ApiKeyPrompt({
         </text>
       ) : (
         <text fg="#3d4761" marginTop={1}>
-          ↵ verify & save · esc cancel · stored in ~/.sydcli (owner-only)
+          ↵ verify & save · esc cancel
         </text>
       )}
     </box>
