@@ -6,12 +6,14 @@ import SessionPicker from "./components/sessionPicker";
 import HelpPopup from "./components/helpPopup";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
+import ApprovalPrompt from "./components/approvalPrompt";
 import { saveApiKey, verifyApiKey } from "./auth";
 import { copyToClipboard } from "./clipboard";
 import { providers, isProviderId, hasApiKey } from "./providers";
 import type { Provider, ProviderId } from "./providers";
 import { dispatch } from "./commands/registry";
-import { streamChat } from "./chat";
+import { streamChat, type ApprovalRequest } from "./chat";
+import { describeToolEvent } from "./tools";
 import {
   createSession,
   findSessionsByIdPrefix,
@@ -39,6 +41,12 @@ export default function App() {
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
   // True while the /help popup is open.
   const [helpOpen, setHelpOpen] = useState(false);
+  // Non-null while the model waits on a write approval: the request being
+  // shown, plus the resolver that un-pauses the stream with the decision.
+  const [approval, setApproval] = useState<{
+    request: ApprovalRequest;
+    resolve: (approved: boolean) => void;
+  } | null>(null);
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
@@ -241,6 +249,19 @@ export default function App() {
     return null;
   }
 
+  // The popup's single exit point: resolve the paused stream, close the
+  // popup, and leave a transcript trace when the change was declined (an
+  // approved change traces itself via the tool-result note).
+  function handleApprovalDecision(approved: boolean) {
+    if (!approval) return;
+    approval.resolve(approved);
+    setApproval(null);
+    if (!approved) {
+      const label = approval.request.note?.label ?? approval.request.tool;
+      insertDuringStream({ role: "system", content: `declined: ${label}` });
+    }
+  }
+
   // Single place a loaded session becomes the live one — shared by the
   // picker popup and the /resume <id> direct path.
   function applySession(session: Session) {
@@ -254,6 +275,18 @@ export default function App() {
     ctx.addSystemMessage(
       `resumed "${session.title}" (${session.messages.length} messages)`,
     );
+  }
+
+  // Insert a transcript entry (tool note, denial notice) mid-stream without
+  // disturbing the trailing assistant placeholder that deltas append to.
+  function insertDuringStream(msg: Message) {
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant") {
+        return [...prev.slice(0, -1), msg, last];
+      }
+      return [...prev, msg];
+    });
   }
 
   async function handleSubmit(message: string) {
@@ -286,6 +319,20 @@ export default function App() {
             ];
           });
         },
+        onToolEvent: (evt) => {
+          const note = describeToolEvent(evt);
+          insertDuringStream({
+            role: "system",
+            content: note.label,
+            toolNote: note,
+          });
+        },
+        onApprovalRequest: (request) =>
+          // Park the resolver in state; the popup's keypress calls it via
+          // handleApprovalDecision, which un-pauses the stream.
+          new Promise<boolean>((resolve) => {
+            setApproval({ request, resolve });
+          }),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -312,7 +359,8 @@ export default function App() {
           pickerSessions === null &&
           !providerPickerOpen &&
           keyPrompt === null &&
-          !helpOpen
+          !helpOpen &&
+          approval === null
         }
         onSubmit={handleSubmit}
       />
@@ -385,6 +433,22 @@ export default function App() {
             provider={keyPrompt}
             onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
             onCancel={() => setKeyPrompt(null)}
+          />
+        </box>
+      )}
+      {approval && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <ApprovalPrompt
+            request={approval.request}
+            onDecide={handleApprovalDecision}
           />
         </box>
       )}

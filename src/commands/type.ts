@@ -1,6 +1,18 @@
+// A tool-activity notice shown inline in the transcript ("↳ edited x.ts"),
+// optionally with a unified diff rendered as red/green highlighted lines.
+export type ToolNote = {
+  label: string;
+  // Unified-diff text (---/+++/@@ format) — the shape OpenTUI's <diff>
+  // renderable parses natively.
+  diffText?: string;
+};
+
 export type Message = {
   role: "user" | "assistant" | "system";
   content: string;
+  // Present only on system messages that record tool activity; drives the
+  // special ↳/diff rendering instead of the plain dim system line.
+  toolNote?: ToolNote;
 };
 
 export type CommandContext = {

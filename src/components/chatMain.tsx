@@ -1,7 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SyntaxStyle, TextAttributes } from "@opentui/core";
 import type { Message } from "../commands/type";
 import { SYD_TAGLINE } from "../branding.ts";
+
+// The thinking indicator: a seed sprouting into a plant, one frame per tick.
+// Grows to full size then restarts from the seed.
+const SPROUT_FRAMES = [".", ",", ";", "|", "Y", "ψ"];
+const SPROUT_TICK_MS = 260;
+
+function ThinkingSprout() {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(
+      () => setFrame((f) => (f + 1) % SPROUT_FRAMES.length),
+      SPROUT_TICK_MS,
+    );
+    return () => clearInterval(timer);
+  }, []);
+  return <text fg="#7ee2a8">{SPROUT_FRAMES[frame]}</text>;
+}
 
 type ChatMainProps = { messages: Message[]; streaming: boolean };
 
@@ -85,8 +102,36 @@ type MessageBlockProps = {
 };
 
 function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
-  // System notices stay compact — a single dim line, no header.
   if (message.role === "system") {
+    // Tool activity: "↳ edited src/x.ts" plus a red/green highlighted diff
+    // when the tool changed a file.
+    if (message.toolNote) {
+      return (
+        <box flexDirection="column" width="100%">
+          <text fg="#9aa4b2" wrapMode="word">
+            ↳ {message.toolNote.label}
+          </text>
+          {message.toolNote.diffText && (
+            <diff
+              diff={message.toolNote.diffText}
+              view="unified"
+              wrapMode="none"
+              showLineNumbers
+              addedBg="#1e3a26"
+              addedContentBg="#1e3a26"
+              addedSignColor="#8ce8b0"
+              removedBg="#3d2027"
+              removedContentBg="#3d2027"
+              removedSignColor="#ff9aa8"
+              fg="#dfe8ff"
+              width="100%"
+              marginLeft={2}
+            />
+          )}
+        </box>
+      );
+    }
+    // Other system notices stay compact — a single dim line, no header.
     return (
       <text fg="#6b7280" wrapMode="word">
         · {message.content}
@@ -98,12 +143,17 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
   // lists, bold, and code blocks render visually instead of showing raw
   // `**`/`#`/backtick syntax. `streaming` keeps the trailing block flexible
   // while tokens arrive, then flips false so trailing-token parsing finalizes.
+  // While the turn is in flight the header grows a sprout — the "thinking"
+  // indicator, covering both the silent tool-loop phase and token streaming.
   if (message.role === "assistant") {
     return (
       <box flexDirection="column" width="100%">
-        <text fg="#8bb4ff" attributes={TextAttributes.BOLD}>
-          syd
-        </text>
+        <box flexDirection="row" gap={1}>
+          <text fg="#8bb4ff" attributes={TextAttributes.BOLD}>
+            syd
+          </text>
+          {streaming && <ThinkingSprout />}
+        </box>
         <markdown
           content={message.content}
           syntaxStyle={syntaxStyle}

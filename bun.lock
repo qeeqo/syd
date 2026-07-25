@@ -12,6 +12,7 @@
         "@opentui/react": "^0.4.0",
         "ai": "^7.0.19",
         "react": "^19.2.6",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@eslint/js": "^10.0.1",
