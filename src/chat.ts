@@ -29,6 +29,7 @@ const SYSTEM_PROMPT =
   `the layout. Before changing a file, readFile it first and make the ` +
   `smallest edit that does the job with editFile; reserve writeFile for ` +
   `new files. Never rewrite a file wholesale to make a small change. ` +
+  `Use deleteFile only when the user explicitly asks to remove a file. ` +
   `File changes require the user's approval; when one is not approved, do ` +
   `not retry it — ask the user what they want instead.`;
 
@@ -97,6 +98,7 @@ export async function streamChat({
       toolApproval: {
         editFile: "user-approval",
         writeFile: "user-approval",
+        deleteFile: "user-approval",
       },
       // Each step is one model call; a step that requests tools triggers
       // execution and another call with the results appended. The cap is the

@@ -608,12 +608,11 @@ export default function App() {
               setModelPickerOpen(false);
               ctx.setModel(next);
             }}
-            // esc closes the model picker and opens the provider picker, so
-            // the two read as one connected flow.
             onSwitchProvider={() => {
               setModelPickerOpen(false);
               setProviderPickerOpen(true);
             }}
+            onClose={() => setModelPickerOpen(false)}
           />
         </box>
       )}

@@ -167,9 +167,14 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
 
   // User turns are shown verbatim — no markdown parsing on what they typed.
   return (
-    <box flexDirection="column" width="100%">
-      <text fg="#4f8cff" attributes={TextAttributes.BOLD}>
-        {">"}
+    <box
+      flexDirection="row"
+      width="100%"
+      backgroundColor="#12351f"
+      paddingX={1}
+    >
+      <text fg="#7ee2a8" attributes={TextAttributes.BOLD}>
+        {"> "}
       </text>
       <text fg="#f3f6ff" wrapMode="word">
         {message.content}

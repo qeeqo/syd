@@ -8,6 +8,9 @@ type ModelPickerProps = {
   current: string;
   onSelect: (model: string) => void;
   onSwitchProvider: () => void;
+  // Dismiss the picker straight back to chat — the quick exit that doesn't
+  // route through the provider picker / key prompt.
+  onClose: () => void;
 };
 
 // How many rows are visible at once; the list scrolls to keep the highlight
@@ -19,6 +22,7 @@ export default function ModelPicker({
   current,
   onSelect,
   onSwitchProvider,
+  onClose,
 }: ModelPickerProps) {
   // undefined while the first fetch is in flight; set once it resolves.
   const [result, setResult] = useState<FetchModelsResult | undefined>();
@@ -71,6 +75,15 @@ export default function ModelPicker({
       case "escape":
         key.preventDefault();
         onSwitchProvider();
+        break;
+      case "q":
+        // Quit straight back to chat — but only on a pristine (empty) filter,
+        // so a literal "q" can still start a type-ahead (e.g. "qwen"). With
+        // text present, fall through and let the focused input receive it.
+        if (filter === "") {
+          key.preventDefault();
+          onClose();
+        }
         break;
     }
   });
@@ -151,7 +164,7 @@ export default function ModelPicker({
       {/* Footer hints — esc is repurposed to hop to the provider picker so
           the user can change provider without leaving the /model flow. */}
       <text fg="#5b6472" marginTop={1}>
-        ↵ select ⋅ esc switch provider
+        ↵ select ⋅ esc switch provider ⋅ q quit
       </text>
     </box>
   );

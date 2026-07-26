@@ -5,7 +5,8 @@
 
 import { tool } from "ai";
 import { z } from "zod";
-import { readdir } from "node:fs/promises";
+import { structuredPatch } from "diff";
+import { readdir, stat, unlink } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { ToolNote } from "./commands/type";
 
@@ -31,27 +32,28 @@ function isBlocked(abs: string): boolean {
 // not source — and it would swamp the context window in one call.
 const MAX_FILE_BYTES = 200_000;
 
-// Build a unified diff (the ---/+++/@@ format) for one contiguous
-// replacement. oldStart is 1-indexed; zero oldLines/newLines means a pure
-// insert/delete, which the format encodes with a 0 count.
+// Build a unified diff (the ---/+++/@@ format) by comparing the whole old and
+// new file contents. jsdiff's structuredPatch runs a real line diff, so only
+// changed lines are marked -/+ and unchanged neighbours become context — an
+// overwrite that touches one line no longer renders as a full-file churn.
+// Returns "" when nothing changed. The output starts at ---/+++ (jsdiff's own
+// Index/=== header is skipped), matching what OpenTUI's <diff> parses.
 function unifiedDiff(
   path: string,
-  oldStart: number,
-  oldLines: string[],
-  newLines: string[],
+  oldContent: string,
+  newContent: string,
 ): string {
-  const oldCount = oldLines.length;
-  const newCount = newLines.length;
-  // A 0-count side anchors on the line BEFORE the change per diff convention.
-  const oldPos = oldCount === 0 ? oldStart - 1 : oldStart;
-  const newPos = newCount === 0 ? oldStart - 1 : oldStart;
-  return [
-    `--- a/${path}`,
-    `+++ b/${path}`,
-    `@@ -${oldPos},${oldCount} +${newPos},${newCount} @@`,
-    ...oldLines.map((l) => `-${l}`),
-    ...newLines.map((l) => `+${l}`),
-  ].join("\n");
+  const { hunks } = structuredPatch(path, path, oldContent, newContent, "", "", {
+    context: 3,
+  });
+  if (hunks.length === 0) return "";
+  const out = [`--- a/${path}`, `+++ b/${path}`];
+  for (const h of hunks) {
+    out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
+    // hunk lines are already prefixed with ' ', '-', or '+' by jsdiff.
+    out.push(...h.lines);
+  }
+  return out.join("\n");
 }
 
 // Write-tool results are objects: `summary` is what the transcript shows and
@@ -118,13 +120,14 @@ async function planEdit(
   const oldLines = oldText.split("\n");
   const newLines = newText === "" ? [] : newText.split("\n");
   const change = `(-${oldLines.length} +${newLines.length} at line ${startLine})`;
+  const next = content.slice(0, at) + newText + content.slice(at + oldText.length);
   return {
     ok: true,
     abs,
-    next: content.slice(0, at) + newText + content.slice(at + oldText.length),
+    next,
     summary: `edited ${path} ${change}`,
     proposal: `edit ${path} ${change}`,
-    diffText: unifiedDiff(path, startLine, oldLines, newLines),
+    diffText: unifiedDiff(path, content, next),
   };
 }
 
@@ -135,7 +138,8 @@ async function planWrite(path: string, content: string): Promise<WritePlan> {
   const existed = await Bun.file(abs).exists();
   // Overwrites diff against what was actually there, so the transcript
   // shows what was lost — not just the new content.
-  const oldLines = existed ? (await Bun.file(abs).text()).split("\n") : [];
+  const oldContent = existed ? await Bun.file(abs).text() : "";
+  const oldLines = oldContent === "" ? [] : oldContent.split("\n");
   const newLines = content === "" ? [] : content.split("\n");
   return {
     ok: true,
@@ -147,7 +151,54 @@ async function planWrite(path: string, content: string): Promise<WritePlan> {
     proposal: existed
       ? `overwrite ${path} (${newLines.length} lines, replacing ${oldLines.length})`
       : `create ${path} (${newLines.length} lines)`,
-    diffText: unifiedDiff(path, 1, oldLines, newLines),
+    diffText: unifiedDiff(path, oldContent, content),
+  };
+}
+
+// A validated-but-not-applied delete. Like WritePlan, the approval preview and
+// the actual removal both derive from this, so what the user approves is
+// exactly what gets deleted. diffText renders the file as all-red (its content
+// diffed against empty) so the popup shows what's being lost.
+type DeletePlan =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      abs: string;
+      summary: string;
+      proposal: string;
+      diffText: string;
+    };
+
+async function planDelete(path: string): Promise<DeletePlan> {
+  const abs = insideProject(path);
+  if (!abs) return { ok: false, error: `error: ${path} is outside the project directory` };
+  if (isBlocked(abs)) return { ok: false, error: `error: ${path} is not deletable` };
+  let info;
+  try {
+    info = await stat(abs);
+  } catch {
+    return { ok: false, error: `error: ${path} does not exist` };
+  }
+  // Only files. A directory delete would be recursive and far more dangerous,
+  // and there's no meaningful single diff to preview for one.
+  if (!info.isFile()) {
+    return {
+      ok: false,
+      error: `error: ${path} is not a file — deleteFile only removes files`,
+    };
+  }
+  // Skip the red diff for oversized files (lockfiles, assets): a huge wall of
+  // red helps no one and could swamp the popup. Fall back to a byte count.
+  const big = info.size > MAX_FILE_BYTES;
+  const oldContent = big ? "" : await Bun.file(abs).text();
+  const lineCount = oldContent === "" ? 0 : oldContent.split("\n").length;
+  const change = big ? `(${info.size} bytes)` : `(${lineCount} lines)`;
+  return {
+    ok: true,
+    abs,
+    summary: `deleted ${path} ${change}`,
+    proposal: `delete ${path} ${change}`,
+    diffText: big ? "" : unifiedDiff(path, oldContent, ""),
   };
 }
 
@@ -269,6 +320,31 @@ export const projectTools = {
       }
     },
   }),
+
+  deleteFile: tool({
+    description:
+      "Delete a file from the user's project. Use only when the user " +
+      "explicitly asks to remove a file — to clear part of a file's contents " +
+      "use editFile instead. Requires the user's approval and cannot be undone.",
+    inputSchema: z.object({
+      path: z.string().describe("File path relative to the project root"),
+    }),
+    execute: async ({ path }) => {
+      try {
+        const plan = await planDelete(path);
+        if (!plan.ok) return plan.error;
+        await unlink(plan.abs);
+        const result: WriteResult = {
+          summary: plan.summary,
+          diffText: plan.diffText,
+        };
+        return result;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return `error: ${msg}`;
+      }
+    },
+  }),
 };
 
 // Preview what a write-tool call would do, without doing it — shown in the
@@ -296,6 +372,10 @@ export async function previewToolCall(
     typeof i?.content === "string"
   ) {
     const plan = await planWrite(i.path, i.content);
+    return plan.ok ? { label: plan.proposal, diffText: plan.diffText } : null;
+  }
+  if (toolName === "deleteFile" && typeof i?.path === "string") {
+    const plan = await planDelete(i.path);
     return plan.ok ? { label: plan.proposal, diffText: plan.diffText } : null;
   }
   return null;
@@ -332,7 +412,8 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
     case "listFiles":
       return { label: `listed ${path === "." || path === "" ? "./" : path}` };
     case "editFile":
-    case "writeFile": {
+    case "writeFile":
+    case "deleteFile": {
       const out = evt.output as Partial<WriteResult> | null;
       if (out && typeof out.summary === "string") {
         return { label: out.summary, diffText: out.diffText };
