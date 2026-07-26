@@ -26,6 +26,13 @@ export type FetchModelsResult =
   | { ok: false; reason: "no-key" | "unreachable" | "empty" };
 
 async function load(provider: Provider): Promise<FetchModelsResult> {
+  // OAuth providers have no live list endpoint — serve their fixed catalog.
+  if (provider.auth === "oauth") {
+    return provider.models.length > 0
+      ? { ok: true, models: provider.models }
+      : { ok: false, reason: "empty" };
+  }
+
   const key = process.env[provider.envVar];
   if (!key || !key.trim()) return { ok: false, reason: "no-key" };
 

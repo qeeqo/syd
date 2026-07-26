@@ -6,6 +6,9 @@ import CommandSuggestions from "./commandSuggestions";
 type chatInputBoxProps = {
   title: string;
   model: string;
+  // Auto-approve mode is on — shown next to the model so the current safety
+  // posture is always visible, not hidden state.
+  autoApprove: boolean;
   // False while a popup (e.g. the /resume picker) owns the keyboard.
   focused: boolean;
   onSubmit: (message: string) => void;
@@ -23,6 +26,7 @@ function commandQuery(draft: string): string | null {
 export default function ChatInputBox({
   title,
   model,
+  autoApprove,
   focused,
   onSubmit,
 }: chatInputBoxProps) {
@@ -124,7 +128,8 @@ export default function ChatInputBox({
           />
         </box>
       </box>
-      <box alignItems="flex-end">
+      <box flexDirection="row" justifyContent="flex-end" gap={1}>
+        {autoApprove && <text fg="#c9a24f">⋅auto-approve</text>}
         <text fg="#8bb4ff">⋅{model}</text>
       </box>
     </box>

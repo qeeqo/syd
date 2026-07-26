@@ -67,7 +67,10 @@ export default function ProviderPicker({
     >
       {providerList.map((p, i) => {
         const isSelected = i === selected;
-        const keyed = hasApiKey(p);
+        const ready = hasApiKey(p);
+        // OAuth providers "sign in" rather than take a key — label to match.
+        const readyLabel = p.auth === "oauth" ? "signed in" : "key ✓";
+        const needLabel = p.auth === "oauth" ? "sign in" : "key needed";
         return (
           <box
             key={p.id}
@@ -80,10 +83,10 @@ export default function ProviderPicker({
               {p.label.padEnd(labelWidth, " ")}
             </text>
             {/* Presence only — the key value is never read or shown.
-                Selecting an unkeyed provider opens the paste prompt. */}
-            <text fg={keyed ? "#5fae7f" : "#c9a24f"}>
+                Selecting an unready provider opens the paste/sign-in prompt. */}
+            <text fg={ready ? "#5fae7f" : "#c9a24f"}>
               {"  "}
-              {keyed ? "key ✓" : "key needed"}
+              {ready ? readyLabel : needLabel}
             </text>
           </box>
         );

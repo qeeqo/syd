@@ -9,6 +9,7 @@ import {
   type ToolApprovalResponse,
 } from "ai";
 import { providers, type ProviderId } from "./providers";
+import { ensureProviderReady } from "./auth";
 import {
   projectTools,
   previewToolCall,
@@ -66,15 +67,30 @@ export async function streamChat({
   onToolEvent,
   onApprovalRequest,
 }: StreamChatArgs) {
+  // Refresh OAuth credentials before the first call so resolve() reads a live
+  // token (no-op for key providers). A failure here throws to the caller,
+  // which surfaces it and lets the user re-authenticate.
+  await ensureProviderReady(provider);
+
   // The conversation grows across approval rounds: each round appends the
   // model's own output plus the user's approval decisions, then re-calls.
   const convo: ModelMessage[] = [...messages];
+
+  // The ChatGPT backend rejects any request that doesn't explicitly set
+  // store:false (the SDK omits it by default). This provider option is scoped
+  // to the OpenAI provider namespace, so it's inert for Google/Anthropic and
+  // for the real api.openai.com provider it's a harmless no-persist request.
+  const providerOptions =
+    providers[provider].auth === "oauth"
+      ? { openai: { store: false } }
+      : undefined;
 
   for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
     const result = streamText({
       model: providers[provider].resolve(model),
       system: SYSTEM_PROMPT,
       messages: convo,
+      providerOptions,
       tools: projectTools,
       // File-changing tools pause the stream with an approval request
       // instead of executing; read-only tools run freely.

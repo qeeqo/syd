@@ -10,23 +10,34 @@
 
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
-import { openai } from "@ai-sdk/openai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
+import {
+  getActiveChatGPT,
+  chatgptHeaders,
+  CHATGPT_BASE_URL,
+} from "./oauth.ts";
 
-export type ProviderId = "google" | "anthropic" | "openai";
+export type ProviderId = "google" | "anthropic" | "openai" | "openai-chatgpt";
 
-export type Provider = {
+// Fields common to every provider, regardless of how it authenticates.
+type BaseProvider = {
   id: ProviderId;
   label: string;
-  // Env var the SDK reads the key from (Bun auto-loads .env at startup).
-  envVar: string;
   // Model adopted when the user switches TO this provider — the previous
   // provider's model id would be meaningless here.
   defaultModel: string;
   resolve: (model: string) => LanguageModel;
+};
+
+// A provider authenticated by a pasted API key (Google, Anthropic, OpenAI).
+export type ApiKeyProvider = BaseProvider & {
+  auth: "api-key";
+  // Env var the SDK reads the key from (Bun auto-loads .env at startup).
+  envVar: string;
   // Cheap authenticated GET (list-models) used both to verify a pasted key
   // before it's stored AND to populate the live model list. Costs nothing on
-  // all three providers.
+  // all three key-based providers.
   verifyRequest: (key: string) => {
     url: string;
     headers: Record<string, string>;
@@ -36,6 +47,15 @@ export type Provider = {
   // every access is defensive. Returns [] on anything unexpected.
   parseModels: (json: unknown) => string[];
 };
+
+// A provider authenticated by ChatGPT OAuth (see oauth.ts). No key to paste
+// and no live list endpoint — the model catalog is a fixed, known family.
+export type OAuthProvider = BaseProvider & {
+  auth: "oauth";
+  models: string[];
+};
+
+export type Provider = ApiKeyProvider | OAuthProvider;
 
 // Narrow an untrusted value to an array of records, for defensive parsing.
 function asRecords(value: unknown): Record<string, unknown>[] {
@@ -49,6 +69,7 @@ export const providers: Record<ProviderId, Provider> = {
   google: {
     id: "google",
     label: "Google Gemini",
+    auth: "api-key",
     envVar: "GOOGLE_GENERATIVE_AI_API_KEY",
     defaultModel: "gemini-2.0-flash",
     resolve: (model) => google(model),
@@ -77,6 +98,7 @@ export const providers: Record<ProviderId, Provider> = {
   anthropic: {
     id: "anthropic",
     label: "Anthropic Claude",
+    auth: "api-key",
     envVar: "ANTHROPIC_API_KEY",
     defaultModel: "claude-sonnet-5",
     resolve: (model) => anthropic(model),
@@ -94,6 +116,7 @@ export const providers: Record<ProviderId, Provider> = {
   openai: {
     id: "openai",
     label: "OpenAI",
+    auth: "api-key",
     envVar: "OPENAI_API_KEY",
     defaultModel: "gpt-5.1",
     resolve: (model) => openai(model),
@@ -113,6 +136,31 @@ export const providers: Record<ProviderId, Provider> = {
         .filter((id) => id.length > 0 && !skip.test(id));
     },
   },
+  "openai-chatgpt": {
+    id: "openai-chatgpt",
+    label: "OpenAI (ChatGPT plan)",
+    auth: "oauth",
+    // ChatGPT accounts accept only a narrow allow-list on the Codex backend —
+    // NOT the api.openai.com catalog and NOT the gpt-*-codex ids. The set is
+    // account/plan-dependent and shifts over time, so this is a sensible
+    // default rather than exhaustive; the picker allows typing any id, and a
+    // rejected one surfaces the backend's message instead of failing silently.
+    defaultModel: "gpt-5.5",
+    models: ["gpt-5.5", "gpt-5.4"],
+    // Point the OpenAI SDK at the ChatGPT backend with the OAuth access token
+    // as the bearer and the extra headers the backend requires. getActiveChatGPT
+    // is kept current by auth.ts; ensureProviderReady refreshes it before the
+    // call, so the token read here is fresh. `.responses` targets the Responses
+    // API shape the backend speaks.
+    resolve: (model) => {
+      const tok = getActiveChatGPT();
+      return createOpenAI({
+        baseURL: CHATGPT_BASE_URL,
+        apiKey: tok?.access ?? "",
+        headers: chatgptHeaders(tok?.accountId ?? null),
+      }).responses(model);
+    },
+  },
 };
 
 // Stable insertion order for pickers and help text.
@@ -122,8 +170,12 @@ export function isProviderId(value: string): value is ProviderId {
   return value in providers;
 }
 
-// Presence check only — the value never leaves process.env.
+// Presence check only — is this provider ready to use without prompting for
+// credentials? For key providers, the env var is set (value never leaves
+// process.env); for OAuth, tokens have been loaded/logged-in (validity is a
+// separate concern handled at call time by refresh).
 export function hasApiKey(provider: Provider): boolean {
+  if (provider.auth === "oauth") return getActiveChatGPT() !== null;
   const value = process.env[provider.envVar];
   return typeof value === "string" && value.trim().length > 0;
 }

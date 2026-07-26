@@ -7,11 +7,15 @@ type ApprovalPromptProps = {
   // Called exactly once with the user's decision; App resolves the paused
   // stream with it.
   onDecide: (approved: boolean) => void;
+  // Approve this change AND switch to auto-approve for the rest of the session
+  // — the escape hatch for a multi-file change you've already committed to.
+  onApproveAll: () => void;
 };
 
 export default function ApprovalPrompt({
   request,
   onDecide,
+  onApproveAll,
 }: ApprovalPromptProps) {
   useKeyboard((key) => {
     switch (key.name) {
@@ -19,6 +23,10 @@ export default function ApprovalPrompt({
       case "y":
         key.preventDefault();
         onDecide(true);
+        break;
+      case "a":
+        key.preventDefault();
+        onApproveAll();
         break;
       case "escape":
       case "n":
@@ -78,6 +86,9 @@ export default function ApprovalPrompt({
         </text>
         <text fg="#ff9aa8" attributes={TextAttributes.BOLD}>
           [n / esc] deny
+        </text>
+        <text fg="#c9a24f" attributes={TextAttributes.BOLD}>
+          [a] approve all
         </text>
       </box>
     </box>

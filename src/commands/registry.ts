@@ -41,7 +41,7 @@ const model: Command = {
 
 const provider: Command = {
   name: "provider",
-  description: "Switch AI provider (google, anthropic, openai)",
+  description: "Switch AI provider (google, anthropic, openai, openai-chatgpt)",
   run: (args, ctx) => ctx.setProvider(args.trim() || undefined),
 };
 
@@ -49,6 +49,19 @@ const copy: Command = {
   name: "copy",
   description: "Copy the latest response to the clipboard",
   run: (_args, ctx) => ctx.copyLastResponse(),
+};
+
+const auto: Command = {
+  name: "auto",
+  description: "Toggle auto-approve of file edits (/auto on|off to set)",
+  // Bare `/auto` flips the mode; an explicit on/off is scriptable and
+  // unambiguous. Anything else is a usage nudge rather than a silent no-op.
+  run: (args, ctx) => {
+    const arg = args.trim().toLowerCase();
+    if (!arg) return ctx.toggleAutoApprove();
+    if (arg === "on" || arg === "off") return ctx.setAutoApprove(arg === "on");
+    ctx.addSystemMessage("usage: /auto [on|off]");
+  },
 };
 
 const exit: Command = {
@@ -65,6 +78,7 @@ export const commands: Record<string, Command> = {
   model: model,
   provider: provider,
   copy: copy,
+  auto: auto,
   exit: exit,
   quit: exit,
 };

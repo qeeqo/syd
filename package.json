@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/main.tsx",
+    "start": "bun src/main.tsx",
     "build": "tsc -b",
     "lint": "eslint ."
   },

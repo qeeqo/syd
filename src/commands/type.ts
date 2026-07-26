@@ -28,6 +28,11 @@ export type CommandContext = {
   setProvider: (id?: string) => void;
   // Copy the most recent assistant response to the system clipboard.
   copyLastResponse: () => void | Promise<void>;
+  // Set file-edit approval to auto (apply without asking) or manual (default:
+  // confirm each write). Explicit form for `/auto on|off`.
+  setAutoApprove: (auto: boolean) => void;
+  // Flip the current approval mode — backs the bare `/auto` toggle.
+  toggleAutoApprove: () => void;
   // Open the command-reference popup.
   showHelp: () => void;
   exit: () => void;

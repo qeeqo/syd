@@ -6,11 +6,13 @@ import SessionPicker from "./components/sessionPicker";
 import HelpPopup from "./components/helpPopup";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
+import ChatGPTLoginPrompt from "./components/chatGPTLoginPrompt";
 import ApprovalPrompt from "./components/approvalPrompt";
 import ModelPicker from "./components/modelPicker";
-import { saveApiKey, verifyApiKey } from "./auth";
+import { saveApiKey, verifyApiKey, saveChatGPTTokens } from "./auth";
+import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "./oauth";
 import { copyToClipboard } from "./clipboard";
-import { providers, isProviderId, hasApiKey } from "./providers";
+import { providers, providerList, isProviderId, hasApiKey } from "./providers";
 import type { Provider, ProviderId } from "./providers";
 import { primeModels } from "./models";
 import { dispatch } from "./commands/registry";
@@ -31,26 +33,22 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [provider, setProvider] = useState<ProviderId>("google");
   const [model, setModel] = useState("gemini-3.6-flash");
-  // True only while a model response is actively streaming. Drives the
-  // markdown renderer's `streaming` mode on the in-flight assistant turn so it
-  // finalizes trailing-token parsing once the turn completes.
   const [isStreaming, setIsStreaming] = useState(false);
-  // Non-null while the /resume popup is open: the sessions it offers.
   const [pickerSessions, setPickerSessions] = useState<Session[] | null>(null);
-  // True while the /provider popup is open.
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
-  // Non-null while the API-key paste prompt is open: the provider it's for.
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
-  // True while the /help popup is open.
   const [helpOpen, setHelpOpen] = useState(false);
-  // True while the /model picker popup is open.
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  // Non-null while the model waits on a write approval: the request being
-  // shown, plus the resolver that un-pauses the stream with the decision.
   const [approval, setApproval] = useState<{
     request: ApprovalRequest;
     resolve: (approved: boolean) => void;
   } | null>(null);
+  // Approval mode. Default manual (confirm each write) — the diff preview is
+  // what guards against wrong-file / oversized edits. The ref mirrors the
+  // state so the streaming closure reads the live value even if the mode is
+  // toggled mid-turn; the state drives the input-box indicator.
+  const [autoApprove, setAutoApproveState] = useState(false);
+  const autoApproveRef = useRef(false);
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
@@ -176,6 +174,16 @@ export default function App() {
       setModel(next);
       ctx.addSystemMessage(`model set to ${next}`);
     },
+    setAutoApprove: (auto) => {
+      autoApproveRef.current = auto;
+      setAutoApproveState(auto);
+      ctx.addSystemMessage(
+        auto
+          ? "auto-approve ON — file edits apply without asking (/auto off to stop)"
+          : "auto-approve OFF — file edits ask first",
+      );
+    },
+    toggleAutoApprove: () => ctx.setAutoApprove(!autoApproveRef.current),
     setProvider: (id) => {
       // No arg → arrow-key picker popup.
       if (!id) {
@@ -185,7 +193,9 @@ export default function App() {
       const normalized = id.toLowerCase();
       if (!isProviderId(normalized)) {
         ctx.addSystemMessage(
-          `unknown provider: ${id} (valid: google, anthropic, openai)`,
+          `unknown provider: ${id} (valid: ${providerList
+            .map((p) => p.id)
+            .join(", ")})`,
         );
         return;
       }
@@ -265,6 +275,9 @@ export default function App() {
     target: Provider,
     key: string,
   ): Promise<string | null> {
+    // Only key providers reach this prompt; the guard also narrows the union
+    // so target.envVar below is well-typed.
+    if (target.auth !== "api-key") return `${target.label} does not use a key`;
     const verdict = await verifyApiKey(target, key);
     if (verdict === "invalid") {
       return `${target.label} rejected this key — check it and try again`;
@@ -284,6 +297,37 @@ export default function App() {
     // The key is now in env — warm the model cache so the /model picker is
     // instant on first open (this reuses the fetch, not a second round-trip).
     primeModels(target.id);
+    applyProvider(target);
+    return null;
+  }
+
+  // OAuth sibling of handleKeySubmit: run the ChatGPT browser login, persist
+  // the tokens, and finish the provider switch (same model-picker handoff).
+  // Returns an error string (prompt stays open, shows it) or null on success.
+  async function handleOAuthLogin(target: Provider): Promise<string | null> {
+    try {
+      const { url, result } = await startChatGPTLogin();
+      openUrl(url);
+      // Fallback for when the browser can't auto-open (SSH, no default handler)
+      // — the authorize URL is safe to show (no secret; PKCE protects it).
+      ctx.addSystemMessage(`if your browser didn't open, visit:\n${url}`);
+      await saveChatGPTTokens(await result);
+    } catch (err) {
+      // Never include token values — these come from the flow/fetch, not them.
+      return err instanceof Error ? err.message : String(err);
+    }
+    setKeyPrompt(null);
+    ctx.addSystemMessage(`signed in to ${target.label}`);
+    // Prove the account can actually run a call before handing off — a wrong
+    // model id or an account without access fails here loudly instead of on
+    // the first prompt. A failure is a warning, not a block: auth succeeded,
+    // and the user can pick a different model in the picker that follows.
+    const problem = await verifyChatGPTAccess(target.defaultModel);
+    if (problem) {
+      ctx.addSystemMessage(
+        `heads up: a test call with ${target.defaultModel} was rejected — ${problem}. Try another model via /model.`,
+      );
+    }
     applyProvider(target);
     return null;
   }
@@ -367,11 +411,15 @@ export default function App() {
           });
         },
         onApprovalRequest: (request) =>
-          // Park the resolver in state; the popup's keypress calls it via
+          // Auto mode: approve immediately, no popup (the change still lands in
+          // the transcript as a diff via onToolEvent). Manual mode: park the
+          // resolver in state; the popup's keypress calls it via
           // handleApprovalDecision, which un-pauses the stream.
-          new Promise<boolean>((resolve) => {
-            setApproval({ request, resolve });
-          }),
+          autoApproveRef.current
+            ? Promise.resolve(true)
+            : new Promise<boolean>((resolve) => {
+                setApproval({ request, resolve });
+              }),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -392,6 +440,7 @@ export default function App() {
       <ChatInputBox
         title={sessionTitle}
         model={model}
+        autoApprove={autoApprove}
         // Unfocus while a popup is open so keystrokes can't leak into the
         // draft; the popup owns the keyboard instead.
         focused={
@@ -475,16 +524,27 @@ export default function App() {
           justifyContent="center"
           alignItems="center"
         >
-          <ApiKeyPrompt
-            provider={keyPrompt}
-            onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
-            onCancel={() => {
-              // Abandoning the key paste also abandons the pending model-picker
-              // handoff — otherwise it would fire on the next provider switch.
-              openModelAfterProvider.current = false;
-              setKeyPrompt(null);
-            }}
-          />
+          {keyPrompt.auth === "oauth" ? (
+            <ChatGPTLoginPrompt
+              provider={keyPrompt}
+              onLogin={() => handleOAuthLogin(keyPrompt)}
+              onCancel={() => {
+                openModelAfterProvider.current = false;
+                setKeyPrompt(null);
+              }}
+            />
+          ) : (
+            <ApiKeyPrompt
+              provider={keyPrompt}
+              onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
+              onCancel={() => {
+                // Abandoning the paste also abandons the pending model-picker
+                // handoff — else it fires on the next provider switch.
+                openModelAfterProvider.current = false;
+                setKeyPrompt(null);
+              }}
+            />
+          )}
         </box>
       )}
       {modelPickerOpen && (
@@ -526,6 +586,12 @@ export default function App() {
           <ApprovalPrompt
             request={approval.request}
             onDecide={handleApprovalDecision}
+            // "approve all": flip to auto for the rest of the session and
+            // approve this one, so a multi-file change stops interrupting.
+            onApproveAll={() => {
+              ctx.setAutoApprove(true);
+              handleApprovalDecision(true);
+            }}
           />
         </box>
       )}
