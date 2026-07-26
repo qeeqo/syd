@@ -35,9 +35,18 @@ export type CommandContext = {
   toggleAutoApprove: () => void;
   // Open the command-reference popup.
   showHelp: () => void;
-  // Print a readout of the configured MCP servers and their live tool counts.
-  // With a server name, list that one server's tools instead.
-  showMcpStatus: (server?: string) => void;
+  // Open the scrollable MCP-tools reference window (every connected server's
+  // tools + descriptions). No-op with a system note when none are configured.
+  showMcpTools: () => void;
+  // Re-read config.json and reconnect all MCP servers without restarting syd.
+  reloadMcp: () => void | Promise<void>;
+  // Run the interactive OAuth login for one configured server, then reconnect.
+  loginMcp: (server: string) => void | Promise<void>;
+  // Add an HTTP MCP server to config.json and connect it. `oauth` marks it as
+  // needing an interactive login (/mcp-login) rather than a static token.
+  addMcpServer: (name: string, url: string, oauth: boolean) => void | Promise<void>;
+  // Remove a server from config.json and drop its connection.
+  removeMcpServer: (name: string) => void | Promise<void>;
   exit: () => void;
 };
 

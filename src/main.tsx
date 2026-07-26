@@ -26,6 +26,6 @@ createRoot(renderer).render(
   <App
     config={config}
     configWarnings={[...warnings, ...mcp.warnings]}
-    mcp={mcp}
+    initialMcp={mcp}
   />,
 );

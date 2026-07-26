@@ -66,8 +66,58 @@ const auto: Command = {
 
 const mcp: Command = {
   name: "mcp",
-  description: "Show connected MCP servers, or one server's tools (/mcp <name>)",
-  run: (args, ctx) => ctx.showMcpStatus(args.trim() || undefined),
+  description: "Browse tools from connected MCP servers",
+  run: (_args, ctx) => ctx.showMcpTools(),
+};
+
+const mcpReload: Command = {
+  name: "mcp-reload",
+  description: "Reconnect all MCP servers (after editing config)",
+  run: (_args, ctx) => ctx.reloadMcp(),
+};
+
+const mcpLogin: Command = {
+  name: "mcp-login",
+  description: "Sign in to an OAuth MCP server: /mcp-login <server>",
+  run: (args, ctx) => {
+    const server = args.trim();
+    if (!server) {
+      ctx.addSystemMessage("usage: /mcp-login <server>");
+      return;
+    }
+    return ctx.loginMcp(server);
+  },
+};
+
+const mcpAdd: Command = {
+  name: "mcp-add",
+  description: "Add an HTTP server: /mcp-add <name> <url> [oauth]",
+  run: (args, ctx) => {
+    const parts = args.trim().split(/\s+/).filter(Boolean);
+    const [name, url, flag] = parts;
+    if (!name || !url) {
+      ctx.addSystemMessage("usage: /mcp-add <name> <url> [oauth]");
+      return;
+    }
+    if (flag !== undefined && flag !== "oauth") {
+      ctx.addSystemMessage('the third argument must be "oauth" or omitted');
+      return;
+    }
+    return ctx.addMcpServer(name, url, flag === "oauth");
+  },
+};
+
+const mcpRemove: Command = {
+  name: "mcp-remove",
+  description: "Remove a server: /mcp-remove <name>",
+  run: (args, ctx) => {
+    const name = args.trim();
+    if (!name) {
+      ctx.addSystemMessage("usage: /mcp-remove <name>");
+      return;
+    }
+    return ctx.removeMcpServer(name);
+  },
 };
 
 const exit: Command = {
@@ -86,6 +136,10 @@ export const commands: Record<string, Command> = {
   copy: copy,
   auto: auto,
   mcp: mcp,
+  "mcp-reload": mcpReload,
+  "mcp-login": mcpLogin,
+  "mcp-add": mcpAdd,
+  "mcp-remove": mcpRemove,
   exit: exit,
   quit: exit,
 };

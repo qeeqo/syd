@@ -111,6 +111,33 @@ export async function saveApiKey(envVar: string, key: string): Promise<void> {
   process.env[envVar] = key;
 }
 
+// --- Generic secret blobs ---------------------------------------------------
+//
+// Arbitrary secret strings (MCP OAuth tokens, client registrations, PKCE
+// verifiers) stored under a namespaced key in the SAME 0600 auth.json, so they
+// inherit its atomic-write / owner-only guarantees. Kept out of the provider
+// envVar namespace and never surfaced into process.env (applyStoredKeys only
+// walks known provider env vars), so they can't leak into a subprocess or the
+// SDKs. Callers own their key namespace (e.g. "mcp-oauth:<server>:tokens").
+
+export async function readAuthBlob(key: string): Promise<string | undefined> {
+  return (await readStore())[key];
+}
+
+export async function writeAuthBlob(key: string, value: string): Promise<void> {
+  const store = await readStore();
+  store[key] = value;
+  await writeStore(store);
+}
+
+export async function deleteAuthBlob(key: string): Promise<void> {
+  const store = await readStore();
+  if (key in store) {
+    delete store[key];
+    await writeStore(store);
+  }
+}
+
 // --- ChatGPT OAuth tokens ---------------------------------------------------
 
 // Read the stored tokens, defensively (the file is user-editable and could be

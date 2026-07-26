@@ -12,7 +12,8 @@
 // The file only seeds startup; nothing here writes it back.
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { mkdir } from "node:fs/promises";
 import { providers, isProviderId, type ProviderId } from "./providers.ts";
 import type { McpServerConfig, McpTrust } from "./mcp.ts";
 
@@ -137,11 +138,24 @@ function parseOneServer(
         );
       }
     }
+    // auth — only "oauth" is meaningful; anything else falls back to header/no
+    // auth with a warning.
+    let auth: "oauth" | undefined;
+    if (obj.auth !== undefined) {
+      if (obj.auth === "oauth") {
+        auth = "oauth";
+      } else {
+        warnings.push(
+          `config: mcp server "${name}" auth must be "oauth" (or omitted) — ignoring it`,
+        );
+      }
+    }
     return {
       transport,
       url: (obj.url as string).trim(),
       headers: parseStringRecord(name, "headers", obj.headers, warnings),
       trust,
+      ...(auth ? { auth } : {}),
     };
   }
 
@@ -266,4 +280,63 @@ export async function loadConfig(): Promise<{
   const mcpServers = parseMcpServers(obj.mcpServers, warnings);
 
   return { config: { provider, model, autoApprove, mcpServers }, warnings };
+}
+
+// --- Writing config.json ----------------------------------------------------
+// Unlike loadConfig (which only reads and fills defaults), these mutate the
+// file for the in-app /mcp-add and /mcp-remove commands. They read the RAW
+// object and touch only mcpServers, so keys this module doesn't model (or hasn't
+// yet) survive round-trips. Not a secret file, so a plain write — auth.json's
+// 0600 ceremony is deliberately not used here.
+
+// Read the file as a plain object, or {} when absent/corrupt/not-an-object.
+async function readRawConfig(): Promise<Record<string, unknown>> {
+  try {
+    const raw = await Bun.file(CONFIG_FILE).json();
+    if (typeof raw === "object" && raw !== null && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>;
+    }
+  } catch {
+    // Absent or unparseable → start from an empty object.
+  }
+  return {};
+}
+
+async function writeRawConfig(obj: Record<string, unknown>): Promise<void> {
+  await mkdir(dirname(CONFIG_FILE), { recursive: true });
+  await Bun.write(CONFIG_FILE, JSON.stringify(obj, null, 2) + "\n");
+}
+
+// Pull the raw mcpServers object out of a raw config, or {} if it's missing or
+// the wrong shape (a corrupt block shouldn't crash an add/remove).
+function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
+  const value = raw.mcpServers;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+// Add or replace one MCP server in config.json, preserving every other key.
+export async function saveMcpServer(
+  name: string,
+  server: McpServerConfig,
+): Promise<void> {
+  const raw = await readRawConfig();
+  const servers = rawMcpServers(raw);
+  servers[name] = server;
+  raw.mcpServers = servers;
+  await writeRawConfig(raw);
+}
+
+// Remove one MCP server from config.json. Returns false (no write) if it wasn't
+// there, so the caller can tell the user rather than silently succeeding.
+export async function removeMcpServerFromConfig(name: string): Promise<boolean> {
+  const raw = await readRawConfig();
+  const servers = rawMcpServers(raw);
+  if (!(name in servers)) return false;
+  delete servers[name];
+  raw.mcpServers = servers;
+  await writeRawConfig(raw);
+  return true;
 }

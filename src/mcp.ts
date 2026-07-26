@@ -23,6 +23,7 @@ import {
 } from "@ai-sdk/mcp";
 import { Experimental_StdioMCPTransport as StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { ToolSet } from "ai";
+import { startupAuthProvider, hasMcpTokens } from "./mcpOAuth";
 
 // "prompt" (default): every tool call from this server asks first via the
 // approval popup. "trusted": its tools run freely, like the read-only local
@@ -47,6 +48,9 @@ export type HttpServer = {
   url: string;
   headers?: Record<string, string>;
   trust?: McpTrust;
+  // "oauth" → authenticate via an interactive OAuth login (src/mcpOAuth.ts)
+  // instead of (or in addition to) static `headers`. Absent → header/no auth.
+  auth?: "oauth";
 };
 
 export type McpServerConfig = StdioServer | HttpServer;
@@ -121,6 +125,12 @@ function buildTransport(
         `server "${name}" headers`,
         warnings,
       ),
+      // OAuth servers get an auth provider backed by auth.json. The startup
+      // variant refuses to open a browser, so a missing/expired token surfaces
+      // as a "needs login" warning rather than a popup during startup.
+      ...(server.auth === "oauth"
+        ? { authProvider: startupAuthProvider(name) }
+        : {}),
     };
   }
   return new StdioMCPTransport({
@@ -176,6 +186,17 @@ export async function connectMcpServers(
 
   if (servers) {
     for (const [name, server] of Object.entries(servers)) {
+      // An OAuth server with no stored token can't connect yet — say so plainly
+      // and skip, rather than attempting a connect that's bound to fail.
+      if (
+        "url" in server &&
+        server.auth === "oauth" &&
+        !(await hasMcpTokens(name))
+      ) {
+        warnings.push(`mcp: server "${name}" needs login — run /mcp login ${name}`);
+        continue;
+      }
+
       let client: MCPClient | undefined;
       try {
         const transport = buildTransport(name, server, warnings);
@@ -204,7 +225,16 @@ export async function connectMcpServers(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        warnings.push(`mcp: server "${name}" failed — ${msg}`);
+        // A stored token that can't be refreshed lands here (the startup auth
+        // provider throws instead of opening a browser) — surface it as a
+        // re-login prompt, not a scary failure.
+        if (msg.includes("authorization required")) {
+          warnings.push(
+            `mcp: server "${name}" needs login — run /mcp login ${name}`,
+          );
+        } else {
+          warnings.push(`mcp: server "${name}" failed — ${msg}`);
+        }
         // Best-effort cleanup of a half-open client, so a server that connected
         // but then failed on tools() never leaks its subprocess or socket.
         if (client) await client.close().catch(() => {});

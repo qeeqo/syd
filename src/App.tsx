@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useRenderer } from "@opentui/react";
+import { useRenderer, useKeyboard } from "@opentui/react";
 import ChatMain from "./components/chatMain";
 import ChatInputBox from "./components/chatInputBox";
 import SessionPicker from "./components/sessionPicker";
@@ -9,6 +9,9 @@ import ApiKeyPrompt from "./components/apiKeyPrompt";
 import ChatGPTLoginPrompt from "./components/chatGPTLoginPrompt";
 import ApprovalPrompt from "./components/approvalPrompt";
 import ModelPicker from "./components/modelPicker";
+import McpToolsPopup, {
+  type McpServerView,
+} from "./components/mcpToolsPopup";
 import { saveApiKey, verifyApiKey, saveChatGPTTokens } from "./auth";
 import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "./oauth";
 import { copyToClipboard } from "./clipboard";
@@ -25,8 +28,20 @@ import {
   saveSession,
 } from "./session";
 import type { Session } from "./session";
-import { configPath, type Config } from "./config";
-import { closeMcpClients, type McpRuntime } from "./mcp";
+import {
+  configPath,
+  loadConfig,
+  saveMcpServer,
+  removeMcpServerFromConfig,
+  type Config,
+} from "./config";
+import {
+  connectMcpServers,
+  closeMcpClients,
+  type McpRuntime,
+  type McpServerConfig,
+} from "./mcp";
+import { loginMcpServer } from "./mcpOAuth";
 import type { CommandContext, Message } from "./commands/type";
 
 type AppProps = {
@@ -35,11 +50,16 @@ type AppProps = {
   config: Config;
   configWarnings?: string[];
   // MCP servers connected at startup (main.tsx). Their tools feed every
-  // streamChat call; their clients are closed on exit.
-  mcp: McpRuntime;
+  // streamChat call; their clients are closed on exit. Held in state so
+  // /mcp reload can swap in a freshly-connected runtime.
+  initialMcp: McpRuntime;
 };
 
-export default function App({ config, configWarnings = [], mcp }: AppProps) {
+export default function App({
+  config,
+  configWarnings = [],
+  initialMcp,
+}: AppProps) {
   const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   // Seed the transcript with any config-parse warnings so a bad config.json is
@@ -55,6 +75,7 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [mcpToolsOpen, setMcpToolsOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [approval, setApproval] = useState<{
     request: ApprovalRequest;
@@ -66,6 +87,40 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
   // toggled mid-turn; the state drives the input-box indicator.
   const [autoApprove, setAutoApproveState] = useState(config.autoApprove);
   const autoApproveRef = useRef(config.autoApprove);
+  // The live MCP runtime (tools/gated/clients) and the server config that
+  // produced it. Both start from what main.tsx connected at startup and are
+  // replaced wholesale by /mcp reload — so buildMcpViews, streamChat, and exit
+  // always read the current set, not the startup snapshot.
+  const [mcp, setMcp] = useState(initialMcp);
+  const [mcpServers, setMcpServers] = useState(config.mcpServers);
+  // Guards /mcp reload | login against overlapping runs (each closes and
+  // reconnects clients; two at once would race the client list).
+  const mcpBusy = useRef(false);
+  // Set while a turn is streaming so Escape can abort it (see the useKeyboard
+  // handler below); cleared when the turn settles.
+  const abortRef = useRef<AbortController | null>(null);
+
+  // True while any popup owns the keyboard. Drives both the input's focus (it
+  // must not swallow keys meant for the popup) and the Escape-to-cancel gate
+  // (Escape belongs to an open popup, not to turn cancellation).
+  const overlayOpen =
+    pickerSessions !== null ||
+    providerPickerOpen ||
+    keyPrompt !== null ||
+    helpOpen ||
+    mcpToolsOpen ||
+    modelPickerOpen ||
+    approval !== null;
+
+  // Escape cancels an in-flight turn. Global keypress handler (fires even while
+  // the input is focused), gated so it only acts mid-stream and only when no
+  // popup is open — an open popup's own Escape handles dismissal/denial.
+  useKeyboard((key) => {
+    if (key.name === "escape" && isStreaming && !overlayOpen) {
+      key.preventDefault();
+      abortRef.current?.abort();
+    }
+  });
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
@@ -131,6 +186,36 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
     // buildSession only reads state already listed here (plus stable refs).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, sessionTitle, provider, model, isStreaming]);
+
+  // Shared gate for the MCP mutating commands: refuse mid-turn (swapping the
+  // tool set would pull tools out from under an in-flight call) or while another
+  // MCP op is running. Returns true when it's safe to proceed.
+  function mcpGuard(): boolean {
+    if (isStreaming) {
+      ctx.addSystemMessage("wait for the current response to finish");
+      return false;
+    }
+    if (mcpBusy.current) {
+      ctx.addSystemMessage("an MCP operation is already in progress");
+      return false;
+    }
+    return true;
+  }
+
+  // Close the current MCP clients and reconnect from the freshly-read config,
+  // swapping in the new runtime + server list and surfacing warnings. Shared by
+  // /mcp-reload, /mcp-add, /mcp-remove, and the post-login reconnect. Callers own
+  // the mcpGuard() check and the mcpBusy flag.
+  async function reconnectMcp(): Promise<McpRuntime> {
+    const { config: fresh, warnings } = await loadConfig();
+    for (const w of warnings) ctx.addSystemMessage(w);
+    await closeMcpClients(mcp.clients);
+    const next = await connectMcpServers(fresh.mcpServers);
+    setMcp(next);
+    setMcpServers(fresh.mcpServers);
+    for (const w of next.warnings) ctx.addSystemMessage(w);
+    return next;
+  }
 
   const ctx: CommandContext = {
     addSystemMessage: (text) =>
@@ -219,68 +304,141 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
       applyProvider(providers[normalized]);
     },
     showHelp: () => setHelpOpen(true),
-    showMcpStatus: (server) => {
-      const names = Object.keys(config.mcpServers);
-      if (names.length === 0) {
+    showMcpTools: () => {
+      if (Object.keys(mcpServers).length === 0) {
         ctx.addSystemMessage(
           `no MCP servers configured — add them under "mcpServers" in ${configPath()}`,
         );
         return;
       }
-
-      // Group the merged tools back by server, from their namespaced keys.
-      const toolsByServer = new Map<string, string[]>();
-      for (const key of Object.keys(mcp.tools)) {
-        const sep = key.indexOf("__");
-        if (sep === -1) continue;
-        const owner = key.slice(0, sep);
-        const list = toolsByServer.get(owner) ?? [];
-        list.push(key.slice(sep + 2));
-        toolsByServer.set(owner, list);
-      }
-
-      // Detail view: one server's tools.
-      if (server) {
-        if (!(server in config.mcpServers)) {
-          ctx.addSystemMessage(
-            `unknown MCP server "${server}" (configured: ${names.join(", ")})`,
-          );
-          return;
-        }
-        const tools = (toolsByServer.get(server) ?? []).sort();
-        if (tools.length === 0) {
-          ctx.addSystemMessage(
-            `"${server}" exposed no tools — it may have failed to connect (/mcp for status)`,
-          );
-          return;
-        }
+      setMcpToolsOpen(true);
+    },
+    reloadMcp: async () => {
+      if (!mcpGuard()) return;
+      mcpBusy.current = true;
+      ctx.addSystemMessage("reloading MCP servers…");
+      try {
+        const next = await reconnectMcp();
         ctx.addSystemMessage(
-          `${server} — ${tools.length} tool${tools.length === 1 ? "" : "s"}:\n` +
-            tools.map((t) => `  ${server}__${t}`).join("\n"),
+          `MCP reloaded — ${next.clients.length} server${next.clients.length === 1 ? "" : "s"} connected, ${Object.keys(next.tools).length} tool${Object.keys(next.tools).length === 1 ? "" : "s"}`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`MCP reload failed: ${msg}`);
+      } finally {
+        mcpBusy.current = false;
+      }
+    },
+    loginMcp: async (server) => {
+      const cfg = mcpServers[server];
+      if (!cfg) {
+        ctx.addSystemMessage(
+          `unknown MCP server "${server}" (configured: ${Object.keys(mcpServers).join(", ") || "none"})`,
         );
         return;
       }
-
-      // Summary view: every configured server, with its live tool count.
-      const lines = names.map((name) => {
-        const cfg = config.mcpServers[name];
-        const where =
-          "url" in cfg ? `${cfg.transport} ${cfg.url}` : `stdio ${cfg.command}`;
-        const trust = cfg.trust ?? "prompt";
-        const count = toolsByServer.get(name)?.length ?? 0;
-        const status =
-          count > 0
-            ? `${count} tool${count === 1 ? "" : "s"}`
-            : "not connected";
-        return `  ${name} — ${where} · ${trust} · ${status}`;
-      });
-      ctx.addSystemMessage(
-        `MCP servers (${names.length} configured):\n${lines.join("\n")}`,
-      );
-
-      // Reprint any connect-time warnings so failures are visible here without
-      // scrolling back to launch.
-      for (const w of mcp.warnings) ctx.addSystemMessage(w);
+      if (!("url" in cfg) || cfg.auth !== "oauth") {
+        ctx.addSystemMessage(
+          `"${server}" is not an OAuth server — login only applies to servers with "auth": "oauth"`,
+        );
+        return;
+      }
+      if (!mcpGuard()) return;
+      mcpBusy.current = true;
+      ctx.addSystemMessage(`opening browser to sign in to "${server}"…`);
+      try {
+        await loginMcpServer(server, cfg.url, (url) => {
+          // Fallback when the browser can't auto-open (SSH, no handler). The
+          // authorize URL carries no secret; PKCE protects the exchange.
+          ctx.addSystemMessage(`if your browser didn't open, visit:\n${url}`);
+        });
+        ctx.addSystemMessage(`signed in to "${server}" — reconnecting…`);
+        const next = await reconnectMcp();
+        const count = Object.keys(next.tools).filter((t) =>
+          t.startsWith(`${server}__`),
+        ).length;
+        ctx.addSystemMessage(
+          `"${server}" ready — ${count} tool${count === 1 ? "" : "s"} available`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`login to "${server}" failed: ${msg}`);
+      } finally {
+        mcpBusy.current = false;
+      }
+    },
+    addMcpServer: async (name, url, oauth) => {
+      // Names key the merged tool set as `<name>__<tool>`, so "__" in a name
+      // would corrupt those keys.
+      if (name.includes("__")) {
+        ctx.addSystemMessage('server name cannot contain "__"');
+        return;
+      }
+      let parsed: URL;
+      try {
+        parsed = new URL(url);
+      } catch {
+        ctx.addSystemMessage(`not a valid URL: ${url}`);
+        return;
+      }
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        ctx.addSystemMessage("url must be http(s) — /mcp-add is for HTTP servers");
+        return;
+      }
+      if (name in mcpServers) {
+        ctx.addSystemMessage(
+          `"${name}" already exists — /mcp-remove ${name} first to replace it`,
+        );
+        return;
+      }
+      if (!mcpGuard()) return;
+      mcpBusy.current = true;
+      try {
+        const server: McpServerConfig = oauth
+          ? { transport: "http", url, auth: "oauth" }
+          : { transport: "http", url };
+        await saveMcpServer(name, server);
+        ctx.addSystemMessage(
+          `added MCP server "${name}"${oauth ? " (OAuth)" : ""} — connecting…`,
+        );
+        const next = await reconnectMcp();
+        if (oauth) {
+          ctx.addSystemMessage(`"${name}" uses OAuth — run /mcp-login ${name} to sign in`);
+        } else {
+          const count = Object.keys(next.tools).filter((t) =>
+            t.startsWith(`${name}__`),
+          ).length;
+          ctx.addSystemMessage(
+            count > 0
+              ? `"${name}" ready — ${count} tool${count === 1 ? "" : "s"}`
+              : `"${name}" added but exposed no tools (see warnings above)`,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`adding "${name}" failed: ${msg}`);
+      } finally {
+        mcpBusy.current = false;
+      }
+    },
+    removeMcpServer: async (name) => {
+      if (!mcpGuard()) return;
+      mcpBusy.current = true;
+      try {
+        const removed = await removeMcpServerFromConfig(name);
+        if (!removed) {
+          ctx.addSystemMessage(`no MCP server "${name}" in config`);
+          return;
+        }
+        ctx.addSystemMessage(`removed MCP server "${name}" — reconnecting…`);
+        await reconnectMcp();
+        ctx.addSystemMessage(`"${name}" removed`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`removing "${name}" failed: ${msg}`);
+      } finally {
+        mcpBusy.current = false;
+      }
     },
     copyLastResponse: async () => {
       // A mid-stream copy would grab a half-finished response.
@@ -500,6 +658,9 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
 
     // The save effect skips while streaming (no per-token writes) and
     // persists the finished transcript once this flips back to false.
+    // A fresh controller per turn; the Escape handler aborts it.
+    const controller = new AbortController();
+    abortRef.current = controller;
     setIsStreaming(true);
     try {
       await streamChat({
@@ -508,6 +669,7 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
         messages: history.map(({ role, content }) => ({ role, content })),
         mcpTools: mcp.tools,
         mcpGated: mcp.gated,
+        abortSignal: controller.signal,
         onDelta: (delta) => {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -543,9 +705,16 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
               }),
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      ctx.addSystemMessage(`error: ${msg}`);
+      // A cancel can throw an AbortError out of the stream instead of ending
+      // cleanly — that's not a failure to report, so swallow it and let the
+      // finally block leave its "cancelled" note.
+      if (!controller.signal.aborted) {
+        const msg = err instanceof Error ? err.message : String(err);
+        ctx.addSystemMessage(`error: ${msg}`);
+      }
     } finally {
+      const cancelled = controller.signal.aborted;
+      abortRef.current = null;
       setIsStreaming(false);
       // A turn that ended on a tool call (or denial) re-opened an empty
       // placeholder that would render as a bare "syd" header — drop it.
@@ -555,7 +724,46 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
           ? prev.slice(0, -1)
           : prev;
       });
+      // Leave a trace so a cancelled turn reads as deliberate, not as output
+      // that mysteriously stopped. Whatever streamed before the cancel is kept.
+      if (cancelled) {
+        ctx.addSystemMessage("response cancelled");
+      }
     }
+  }
+
+  // Assemble the /mcp window's data: every declared server, paired with the
+  // tools that actually connected. Namespaced keys carry the server prefix; the
+  // description is the server-authored one the SDK attached to each tool.
+  function buildMcpViews(): McpServerView[] {
+    const toolsByServer = new Map<string, McpServerView["tools"]>();
+    for (const [key, def] of Object.entries(mcp.tools)) {
+      const sep = key.indexOf("__");
+      if (sep === -1) continue;
+      const owner = key.slice(0, sep);
+      const description =
+        typeof (def as { description?: unknown }).description === "string"
+          ? (def as { description: string }).description
+          : "";
+      const list = toolsByServer.get(owner) ?? [];
+      list.push({ name: key.slice(sep + 2), description });
+      toolsByServer.set(owner, list);
+    }
+    return Object.keys(mcpServers).map((name) => {
+      const cfg = mcpServers[name];
+      const where =
+        "url" in cfg ? `${cfg.transport} ${cfg.url}` : `stdio ${cfg.command}`;
+      const tools = (toolsByServer.get(name) ?? []).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      );
+      return {
+        name,
+        where,
+        trust: cfg.trust ?? "prompt",
+        connected: tools.length > 0,
+        tools,
+      };
+    });
   }
 
   return (
@@ -572,14 +780,7 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
         autoApprove={autoApprove}
         // Unfocus while a popup is open so keystrokes can't leak into the
         // draft; the popup owns the keyboard instead.
-        focused={
-          pickerSessions === null &&
-          !providerPickerOpen &&
-          keyPrompt === null &&
-          !helpOpen &&
-          !modelPickerOpen &&
-          approval === null
-        }
+        focused={!overlayOpen}
         onSubmit={handleSubmit}
       />
       {/* Centered overlay: absolute so it floats above the chat without
@@ -641,6 +842,22 @@ export default function App({ config, configWarnings = [], mcp }: AppProps) {
           alignItems="center"
         >
           <HelpPopup onDismiss={() => setHelpOpen(false)} />
+        </box>
+      )}
+      {mcpToolsOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <McpToolsPopup
+            servers={buildMcpViews()}
+            onDismiss={() => setMcpToolsOpen(false)}
+          />
         </box>
       )}
       {keyPrompt && (

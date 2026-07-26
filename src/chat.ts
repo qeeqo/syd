@@ -62,6 +62,9 @@ export type StreamChatArgs = {
   // Names of MCP tools that must go through the approval popup — everything from
   // a non-trusted server. Added to the built-in file tools' approval gate.
   mcpGated?: string[];
+  // Cancels the turn when it fires (user pressed Escape). Aborts the in-flight
+  // model call and ends the approval loop; whatever streamed so far is kept.
+  abortSignal?: AbortSignal;
 };
 
 // Rounds of the outer approve-and-resume loop, on top of the per-call step
@@ -77,6 +80,7 @@ export async function streamChat({
   onApprovalRequest,
   mcpTools,
   mcpGated,
+  abortSignal,
 }: StreamChatArgs) {
   // Refresh OAuth credentials before the first call so resolve() reads a live
   // token (no-op for key providers). A failure here throws to the caller,
@@ -112,11 +116,16 @@ export async function streamChat({
   for (const name of mcpGated ?? []) toolApproval[name] = "user-approval";
 
   for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
+    // A cancel that lands between rounds (after a tool result, before the next
+    // model call) stops here without starting another request.
+    if (abortSignal?.aborted) return;
+
     const result = streamText({
       model: providers[provider].resolve(model),
       system: SYSTEM_PROMPT,
       messages: convo,
       providerOptions,
+      abortSignal,
       tools,
       // Gated tools pause the stream with an approval request instead of
       // executing; everything else runs freely.
@@ -166,13 +175,25 @@ export async function streamChat({
             });
           }
           break;
+        case "abort":
+          // User cancelled — the stream stops here with whatever it emitted.
+          // A clean return, not an error: callers keep the partial output.
+          return;
         case "error":
+          // A cancel can surface as a thrown AbortError instead of an abort
+          // part; treat it as a clean stop, not a failure to report.
+          if (abortSignal?.aborted) return;
           // textStream used to throw these; keep that contract for callers.
           throw part.error instanceof Error
             ? part.error
             : new Error(String(part.error));
       }
     }
+
+    // The fullStream can also end by throwing an AbortError out of the
+    // for-await (rather than emitting an abort part) — the outer try/catch in
+    // App handles that; here we just make sure a post-loop cancel stops us.
+    if (abortSignal?.aborted) return;
 
     // No pending approvals → the model finished its turn normally.
     if (pending.length === 0) return;
