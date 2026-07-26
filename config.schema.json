@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/qeeqo/syd/main/config.schema.json",
+  "title": "sydcli config",
+  "description": "User configuration for sydcli, read from ~/.sydcli/config.json at startup. All fields are optional; anything omitted falls back to a built-in default.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional pointer to this schema for editor autocomplete/validation."
+    },
+    "provider": {
+      "type": "string",
+      "description": "AI provider active at startup.",
+      "enum": ["google", "anthropic", "openai", "openai-chatgpt"],
+      "default": "google"
+    },
+    "model": {
+      "type": "string",
+      "description": "Model id active at startup. When omitted, the chosen provider's default model is used.",
+      "minLength": 1
+    },
+    "autoApprove": {
+      "type": "boolean",
+      "description": "When true, file edits/writes apply without the per-change approval popup. Off is safer (each write asks first).",
+      "default": false
+    },
+    "mcpServers": {
+      "type": "object",
+      "description": "MCP servers to connect at startup. Each key is a short server name that also namespaces the server's tools (as <name>__<tool>). Give a stdio server a `command`, or an HTTP server a `url` — not both.",
+      "additionalProperties": {
+        "type": "object",
+        "description": "One MCP server. Either a stdio (subprocess) server via `command`, or an HTTP/SSE server via `url`.",
+        "properties": {
+          "transport": {
+            "type": "string",
+            "enum": ["stdio", "http", "sse"],
+            "description": "Transport kind. Optional — inferred as stdio when `command` is set, http when `url` is set."
+          },
+          "command": {
+            "type": "string",
+            "description": "Stdio server: the executable to spawn (e.g. \"npx\")."
+          },
+          "args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Stdio server: arguments passed to the command."
+          },
+          "env": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Stdio server: extra environment variables for the subprocess. Values may reference the shell environment with ${VAR} so secrets stay out of this file."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Stdio server: working directory for the subprocess."
+          },
+          "url": {
+            "type": "string",
+            "description": "HTTP/SSE server: the server URL."
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "HTTP/SSE server: extra request headers (e.g. Authorization). Values may reference the shell environment with ${VAR} so secrets stay out of this file."
+          },
+          "trust": {
+            "type": "string",
+            "enum": ["prompt", "trusted"],
+            "default": "prompt",
+            "description": "\"prompt\" (default): every tool call from this server asks for approval first. \"trusted\": its tools run without a prompt."
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

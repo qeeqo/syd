@@ -38,6 +38,14 @@ export default function ApprovalPrompt({
 
   const label = request.note?.label ?? `run ${request.tool}`;
 
+  // File tools carry a diff to review. MCP (and other non-file) tools don't, so
+  // fall back to pretty-printing the call's arguments — the concrete thing the
+  // user is being asked to authorize. Empty/absent args → nothing to show.
+  const argsText =
+    !request.note?.diffText && request.input != null
+      ? formatArgs(request.input)
+      : null;
+
   return (
     <box
       border
@@ -80,6 +88,19 @@ export default function ApprovalPrompt({
           />
         </scrollbox>
       )}
+      {argsText && (
+        <scrollbox
+          scrollY
+          maxHeight={14}
+          marginTop={1}
+          verticalScrollbarOptions={{ visible: false }}
+          contentOptions={{ flexDirection: "column", width: "100%" }}
+        >
+          <text fg="#9aa4b2" wrapMode="word">
+            {argsText}
+          </text>
+        </scrollbox>
+      )}
       <box flexDirection="row" gap={2} marginTop={1}>
         <text fg="#8ce8b0" attributes={TextAttributes.BOLD}>
           [y / enter] approve
@@ -93,4 +114,19 @@ export default function ApprovalPrompt({
       </box>
     </box>
   );
+}
+
+// Pretty-print a tool call's arguments for the popup. Defensive: input is
+// whatever the model produced, so a value that can't be stringified (a cycle,
+// a bigint) falls back to a plain String() rather than throwing into the UI.
+// An empty object has nothing worth showing.
+function formatArgs(input: unknown): string | null {
+  if (input && typeof input === "object" && Object.keys(input).length === 0) {
+    return null;
+  }
+  try {
+    return JSON.stringify(input, null, 2);
+  } catch {
+    return String(input);
+  }
 }

@@ -25,14 +25,31 @@ import {
   saveSession,
 } from "./session";
 import type { Session } from "./session";
+import { configPath, type Config } from "./config";
+import { closeMcpClients, type McpRuntime } from "./mcp";
 import type { CommandContext, Message } from "./commands/type";
 
-export default function App() {
+type AppProps = {
+  // Resolved startup config (from ~/.sydcli/config.json, defaults filled in)
+  // and any warnings from parsing it, surfaced as opening system messages.
+  config: Config;
+  configWarnings?: string[];
+  // MCP servers connected at startup (main.tsx). Their tools feed every
+  // streamChat call; their clients are closed on exit.
+  mcp: McpRuntime;
+};
+
+export default function App({ config, configWarnings = [], mcp }: AppProps) {
   const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [provider, setProvider] = useState<ProviderId>("google");
-  const [model, setModel] = useState("gemini-3.6-flash");
+  // Seed the transcript with any config-parse warnings so a bad config.json is
+  // visible on launch. These are system messages, so the save effect ignores
+  // them — a warning alone never writes a session file.
+  const [messages, setMessages] = useState<Message[]>(() =>
+    configWarnings.map((content) => ({ role: "system", content })),
+  );
+  const [provider, setProvider] = useState<ProviderId>(config.provider);
+  const [model, setModel] = useState(config.model);
   const [isStreaming, setIsStreaming] = useState(false);
   const [pickerSessions, setPickerSessions] = useState<Session[] | null>(null);
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
@@ -47,8 +64,8 @@ export default function App() {
   // what guards against wrong-file / oversized edits. The ref mirrors the
   // state so the streaming closure reads the live value even if the mode is
   // toggled mid-turn; the state drives the input-box indicator.
-  const [autoApprove, setAutoApproveState] = useState(false);
-  const autoApproveRef = useRef(false);
+  const [autoApprove, setAutoApproveState] = useState(config.autoApprove);
+  const autoApproveRef = useRef(config.autoApprove);
 
   // Stable per-session metadata (id, cwd, createdAt) that must survive
   // re-renders without triggering them. Lazily created on first render.
@@ -202,6 +219,69 @@ export default function App() {
       applyProvider(providers[normalized]);
     },
     showHelp: () => setHelpOpen(true),
+    showMcpStatus: (server) => {
+      const names = Object.keys(config.mcpServers);
+      if (names.length === 0) {
+        ctx.addSystemMessage(
+          `no MCP servers configured — add them under "mcpServers" in ${configPath()}`,
+        );
+        return;
+      }
+
+      // Group the merged tools back by server, from their namespaced keys.
+      const toolsByServer = new Map<string, string[]>();
+      for (const key of Object.keys(mcp.tools)) {
+        const sep = key.indexOf("__");
+        if (sep === -1) continue;
+        const owner = key.slice(0, sep);
+        const list = toolsByServer.get(owner) ?? [];
+        list.push(key.slice(sep + 2));
+        toolsByServer.set(owner, list);
+      }
+
+      // Detail view: one server's tools.
+      if (server) {
+        if (!(server in config.mcpServers)) {
+          ctx.addSystemMessage(
+            `unknown MCP server "${server}" (configured: ${names.join(", ")})`,
+          );
+          return;
+        }
+        const tools = (toolsByServer.get(server) ?? []).sort();
+        if (tools.length === 0) {
+          ctx.addSystemMessage(
+            `"${server}" exposed no tools — it may have failed to connect (/mcp for status)`,
+          );
+          return;
+        }
+        ctx.addSystemMessage(
+          `${server} — ${tools.length} tool${tools.length === 1 ? "" : "s"}:\n` +
+            tools.map((t) => `  ${server}__${t}`).join("\n"),
+        );
+        return;
+      }
+
+      // Summary view: every configured server, with its live tool count.
+      const lines = names.map((name) => {
+        const cfg = config.mcpServers[name];
+        const where =
+          "url" in cfg ? `${cfg.transport} ${cfg.url}` : `stdio ${cfg.command}`;
+        const trust = cfg.trust ?? "prompt";
+        const count = toolsByServer.get(name)?.length ?? 0;
+        const status =
+          count > 0
+            ? `${count} tool${count === 1 ? "" : "s"}`
+            : "not connected";
+        return `  ${name} — ${where} · ${trust} · ${status}`;
+      });
+      ctx.addSystemMessage(
+        `MCP servers (${names.length} configured):\n${lines.join("\n")}`,
+      );
+
+      // Reprint any connect-time warnings so failures are visible here without
+      // scrolling back to launch.
+      for (const w of mcp.warnings) ctx.addSystemMessage(w);
+    },
     copyLastResponse: async () => {
       // A mid-stream copy would grab a half-finished response.
       if (isStreaming) {
@@ -237,11 +317,14 @@ export default function App() {
     },
     exit: () => {
       // Let an in-flight session write land before killing the process —
-      // process.exit would otherwise cut it off and lose the last change.
-      void pendingSave.current.finally(() => {
+      // process.exit would otherwise cut it off and lose the last change — then
+      // close MCP clients so their subprocesses don't outlive syd.
+      void (async () => {
+        await pendingSave.current.catch(() => {});
+        await closeMcpClients(mcp.clients);
         renderer.destroy();
         process.exit(0);
-      });
+      })();
     },
   };
 
@@ -423,6 +506,8 @@ export default function App() {
         provider,
         model,
         messages: history.map(({ role, content }) => ({ role, content })),
+        mcpTools: mcp.tools,
+        mcpGated: mcp.gated,
         onDelta: (delta) => {
           setMessages((prev) => {
             const last = prev[prev.length - 1];

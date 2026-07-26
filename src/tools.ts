@@ -421,6 +421,9 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
       return { label: `${evt.tool} ${path}` };
     }
     default:
-      return { label: `${evt.tool} ${path}`.trim() };
+      // Anything else — an MCP server tool. There's no local schema for its
+      // input/output, so just record that it ran (the tool name is already
+      // namespaced <server>__<tool>).
+      return { label: `ran ${evt.tool}` };
   }
 }

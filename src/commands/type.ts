@@ -35,6 +35,9 @@ export type CommandContext = {
   toggleAutoApprove: () => void;
   // Open the command-reference popup.
   showHelp: () => void;
+  // Print a readout of the configured MCP servers and their live tool counts.
+  // With a server name, list that one server's tools instead.
+  showMcpStatus: (server?: string) => void;
   exit: () => void;
 };
 

@@ -7,6 +7,7 @@ import {
   isStepCount,
   type ModelMessage,
   type ToolApprovalResponse,
+  type ToolSet,
 } from "ai";
 import { providers, type ProviderId } from "./providers";
 import { ensureProviderReady } from "./auth";
@@ -54,6 +55,13 @@ export type StreamChatArgs = {
   // true to allow the write, false to deny it. Absent → all writes are
   // denied (fail closed for headless embedders that forget to wire it).
   onApprovalRequest?: (req: ApprovalRequest) => Promise<boolean>;
+  // Tools from connected MCP servers (src/mcp.ts), already namespaced. Merged
+  // into the same tools object as the local project tools. Empty/absent when no
+  // servers are configured, so the local-only path is unchanged.
+  mcpTools?: ToolSet;
+  // Names of MCP tools that must go through the approval popup — everything from
+  // a non-trusted server. Added to the built-in file tools' approval gate.
+  mcpGated?: string[];
 };
 
 // Rounds of the outer approve-and-resume loop, on top of the per-call step
@@ -67,6 +75,8 @@ export async function streamChat({
   onDelta,
   onToolEvent,
   onApprovalRequest,
+  mcpTools,
+  mcpGated,
 }: StreamChatArgs) {
   // Refresh OAuth credentials before the first call so resolve() reads a live
   // token (no-op for key providers). A failure here throws to the caller,
@@ -86,20 +96,31 @@ export async function streamChat({
       ? { openai: { store: false } }
       : undefined;
 
+  // Local project tools plus any connected MCP server tools, in one object —
+  // the single tools set for the whole turn. Built once; the approval loop
+  // re-calls streamText but the tool wiring never changes between rounds.
+  const tools: ToolSet = { ...projectTools, ...mcpTools };
+
+  // Approval gate. The three file-changing local tools always require it; every
+  // non-trusted MCP tool is added on top. Read-only local tools and tools from
+  // a trusted server are absent here, so they run without a prompt.
+  const toolApproval: Record<string, "user-approval"> = {
+    editFile: "user-approval",
+    writeFile: "user-approval",
+    deleteFile: "user-approval",
+  };
+  for (const name of mcpGated ?? []) toolApproval[name] = "user-approval";
+
   for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
     const result = streamText({
       model: providers[provider].resolve(model),
       system: SYSTEM_PROMPT,
       messages: convo,
       providerOptions,
-      tools: projectTools,
-      // File-changing tools pause the stream with an approval request
-      // instead of executing; read-only tools run freely.
-      toolApproval: {
-        editFile: "user-approval",
-        writeFile: "user-approval",
-        deleteFile: "user-approval",
-      },
+      tools,
+      // Gated tools pause the stream with an approval request instead of
+      // executing; everything else runs freely.
+      toolApproval,
       // Each step is one model call; a step that requests tools triggers
       // execution and another call with the results appended. The cap is the
       // safety valve that stops a confused model from looping forever.

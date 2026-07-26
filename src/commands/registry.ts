@@ -64,6 +64,12 @@ const auto: Command = {
   },
 };
 
+const mcp: Command = {
+  name: "mcp",
+  description: "Show connected MCP servers, or one server's tools (/mcp <name>)",
+  run: (args, ctx) => ctx.showMcpStatus(args.trim() || undefined),
+};
+
 const exit: Command = {
   name: "exit",
   description: "Quit sydcli",
@@ -79,6 +85,7 @@ export const commands: Record<string, Command> = {
   provider: provider,
   copy: copy,
   auto: auto,
+  mcp: mcp,
   exit: exit,
   quit: exit,
 };
