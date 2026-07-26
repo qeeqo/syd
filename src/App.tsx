@@ -208,17 +208,27 @@ export default function App() {
         ctx.addSystemMessage("wait for the current response to finish");
         return;
       }
-      const lastResponse = [...messages]
-        .reverse()
-        .find((m) => m.role === "assistant" && m.content.length > 0);
+      // The latest response can span several assistant bubbles (text split
+      // around tool calls). Collect every assistant bubble back to the last
+      // user turn and join them, so /copy grabs the whole reply — not just the
+      // final fragment after the last tool call.
+      const parts: string[] = [];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i];
+        if (m.role === "user") break;
+        if (m.role === "assistant" && m.content.length > 0) {
+          parts.unshift(m.content);
+        }
+      }
+      const lastResponse = parts.join("\n\n");
       if (!lastResponse) {
         ctx.addSystemMessage("no response to copy yet");
         return;
       }
       try {
-        await copyToClipboard(lastResponse.content);
+        await copyToClipboard(lastResponse);
         ctx.addSystemMessage(
-          `copied last response to clipboard (${lastResponse.content.length} chars)`,
+          `copied last response to clipboard (${lastResponse.length} chars)`,
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -360,15 +370,20 @@ export default function App() {
     );
   }
 
-  // Insert a transcript entry (tool note, denial notice) mid-stream without
-  // disturbing the trailing assistant placeholder that deltas append to.
+  // Append a transcript entry (tool note, denial notice) mid-stream in true
+  // chronological order: it lands after whatever the model has said so far,
+  // and a fresh placeholder re-opens below it so subsequent text (and the
+  // thinking sprout) continue underneath — not stacked above. A trailing
+  // *empty* placeholder is dropped first so the note doesn't leave a bare
+  // "syd" header hanging over it.
   function insertDuringStream(msg: Message) {
     setMessages((prev) => {
       const last = prev[prev.length - 1];
-      if (last && last.role === "assistant") {
-        return [...prev.slice(0, -1), msg, last];
-      }
-      return [...prev, msg];
+      const base =
+        last && last.role === "assistant" && last.content.length === 0
+          ? prev.slice(0, -1)
+          : prev;
+      return [...base, msg, { role: "assistant", content: "" }];
     });
   }
 
@@ -376,7 +391,23 @@ export default function App() {
     if (dispatch(message, ctx)) return;
 
     const userMsg: Message = { role: "user", content: message };
-    const history = [...messages, userMsg].filter((m) => m.role !== "system");
+    // Drop system notes and empty placeholders, then collapse consecutive
+    // assistant bubbles (one turn's text, split around tool notes) back into a
+    // single message — some providers reject same-role runs.
+    const history = [...messages, userMsg]
+      .filter((m) => m.role !== "system" && m.content.length > 0)
+      .reduce<Message[]>((acc, m) => {
+        const prev = acc[acc.length - 1];
+        if (prev && prev.role === m.role) {
+          acc[acc.length - 1] = {
+            ...prev,
+            content: `${prev.content}\n\n${m.content}`,
+          };
+          return acc;
+        }
+        acc.push(m);
+        return acc;
+      }, []);
 
     setMessages((prev) => [
       ...prev,
@@ -395,11 +426,16 @@ export default function App() {
         onDelta: (delta) => {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
-            if (!last || last.role !== "assistant") return prev;
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: last.content + delta },
-            ];
+            // Append to the open assistant bubble, or start a new one if a tool
+            // note is the last thing in the transcript — so text after a tool
+            // call lands below it, preserving order.
+            if (last && last.role === "assistant") {
+              return [
+                ...prev.slice(0, -1),
+                { ...last, content: last.content + delta },
+              ];
+            }
+            return [...prev, { role: "assistant", content: delta }];
           });
         },
         onToolEvent: (evt) => {
@@ -426,6 +462,14 @@ export default function App() {
       ctx.addSystemMessage(`error: ${msg}`);
     } finally {
       setIsStreaming(false);
+      // A turn that ended on a tool call (or denial) re-opened an empty
+      // placeholder that would render as a bare "syd" header — drop it.
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        return last && last.role === "assistant" && last.content.length === 0
+          ? prev.slice(0, -1)
+          : prev;
+      });
     }
   }
 
