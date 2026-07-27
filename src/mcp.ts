@@ -76,6 +76,18 @@ export type McpRuntime = {
 // server package can be slow the first time.
 const CONNECT_TIMEOUT_MS = 20_000;
 
+// Ceiling on how long closing clients may take before we stop waiting. A
+// healthy close is well under this; the cap exists so one server that won't
+// close cleanly can't stall exit or a /mcp reload indefinitely.
+const CLOSE_TIMEOUT_MS = 2_000;
+
+// An empty runtime — the starting point before any server has connected, and
+// the value used when there are no servers to connect. Kept here so callers
+// don't hand-roll the shape.
+export function emptyMcpRuntime(): McpRuntime {
+  return { tools: {} as ToolSet, gated: [], clients: [], warnings: [] };
+}
+
 // Expand ${VAR} references in a config string against process.env, so secrets
 // (tokens, keys) live in the shell / .env — which auth.ts already loads — rather
 // than in the hand-editable, unprotected config.json. An unset variable expands
@@ -245,8 +257,27 @@ export async function connectMcpServers(
   return { tools: tools as ToolSet, gated, clients, warnings };
 }
 
-// Close every client, swallowing errors — used on exit. A client that's already
-// down (its server crashed) must not stop the others from closing cleanly.
-export async function closeMcpClients(clients: MCPClient[]): Promise<void> {
-  await Promise.all(clients.map((client) => client.close().catch(() => {})));
+// Close every client, swallowing errors — used on exit and before a reconnect.
+// A client that's already down (its server crashed) must not stop the others
+// from closing cleanly. Bounded by a timeout: on exit the process is about to
+// die (the OS reclaims any HTTP socket, and a stdio child gets stdin EOF), so a
+// server that hangs its own close must never hold the whole app hostage. The
+// in-flight closes keep running; we just stop waiting once the ceiling is hit.
+export async function closeMcpClients(
+  clients: MCPClient[],
+  timeoutMs: number = CLOSE_TIMEOUT_MS,
+): Promise<void> {
+  if (clients.length === 0) return;
+  const closing = Promise.all(
+    clients.map((client) => client.close().catch(() => {})),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, timeoutMs);
+  });
+  try {
+    await Promise.race([closing, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }

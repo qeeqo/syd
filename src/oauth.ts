@@ -206,7 +206,10 @@ export async function startChatGPTLogin(
       // message and close the loop.
       const err = url.searchParams.get("error");
       if (err) {
-        fail(new Error(`authorization failed: ${err}`));
+        // Surface the provider's error_description (RFC 6749 §4.1.2.1), not just
+        // the bare code, so a failure explains itself instead of "access_denied".
+        const desc = url.searchParams.get("error_description");
+        fail(new Error(`authorization failed: ${desc ? `${err} — ${desc}` : err}`));
         return callbackPage("Login failed. You can close this tab.");
       }
       const code = url.searchParams.get("code");
@@ -234,7 +237,11 @@ export async function startChatGPTLogin(
   // Whatever happens, release the port and the timer once.
   const done = result.finally(() => {
     clearTimeout(timer);
-    server.stop(true);
+    // Graceful stop (not stop(true)): the callback page is still flushing to
+    // the browser when this runs, and closing active connections would reset
+    // that write, showing a browser error despite a successful login. Let the
+    // in-flight response finish before releasing the port.
+    server.stop();
   });
 
   return { url: authorize.toString(), result: done };

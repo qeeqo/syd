@@ -214,7 +214,11 @@ function startCallbackServer(timeoutMs: number): CallbackServer {
       }
       const err = url.searchParams.get("error");
       if (err) {
-        fail(new Error(`authorization failed: ${err}`));
+        // OAuth providers put the human-readable reason in error_description
+        // (RFC 6749 §4.1.2.1); include it so a bare code like "access_denied"
+        // isn't the whole story — that detail is what actually explains why.
+        const desc = url.searchParams.get("error_description");
+        fail(new Error(`authorization failed: ${desc ? `${err} — ${desc}` : err}`));
         return callbackPage("Login failed. You can close this tab.");
       }
       const code = url.searchParams.get("code");
@@ -237,7 +241,12 @@ function startCallbackServer(timeoutMs: number): CallbackServer {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    server.stop(true);
+    // Graceful stop (not stop(true)): the success/failure page is still being
+    // flushed to the browser when the code is captured and this runs. Closing
+    // active connections here would reset that write mid-flight, so the browser
+    // shows a connection error even though the login succeeded. A graceful stop
+    // lets the in-flight response finish before releasing the port.
+    server.stop();
   };
   // Whatever happens, release the port and timer exactly once.
   const result = pending.finally(stop);

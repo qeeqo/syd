@@ -38,6 +38,7 @@ import {
 import {
   connectMcpServers,
   closeMcpClients,
+  emptyMcpRuntime,
   type McpRuntime,
   type McpServerConfig,
 } from "./mcp";
@@ -56,22 +57,17 @@ type AppProps = {
   // and any warnings from parsing it, surfaced as opening system messages.
   config: Config;
   configWarnings?: string[];
-  // MCP servers connected at startup (main.tsx). Their tools feed every
-  // streamChat call; their clients are closed on exit. Held in state so
-  // /mcp reload can swap in a freshly-connected runtime.
-  initialMcp: McpRuntime;
 };
 
-export default function App({
-  config,
-  configWarnings = [],
-  initialMcp,
-}: AppProps) {
+export default function App({ config, configWarnings = [] }: AppProps) {
   const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   // Seed the transcript with any config-parse warnings so a bad config.json is
-  // visible on launch. These are system messages, so the save effect ignores
-  // them — a warning alone never writes a session file.
+  // visible on launch. The MCP connect runs silently in the background (see the
+  // effect below) — no "connecting…" line — so a clean startup keeps the home
+  // banner (chatMain shows it only while messages is empty) instead of MCP
+  // status chatter. These are system messages, so the save effect ignores them:
+  // a warning alone never writes a session file.
   const [messages, setMessages] = useState<Message[]>(() =>
     configWarnings.map((content) => ({ role: "system", content })),
   );
@@ -95,10 +91,10 @@ export default function App({
   const [autoApprove, setAutoApproveState] = useState(config.autoApprove);
   const autoApproveRef = useRef(config.autoApprove);
   // The live MCP runtime (tools/gated/clients) and the server config that
-  // produced it. Both start from what main.tsx connected at startup and are
-  // replaced wholesale by /mcp reload — so buildMcpViews, streamChat, and exit
-  // always read the current set, not the startup snapshot.
-  const [mcp, setMcp] = useState(initialMcp);
+  // produced it. Starts empty and is filled by the background connect on mount
+  // (see below); /mcp reload replaces it wholesale — so buildMcpViews,
+  // streamChat, and exit always read the current set, not a stale snapshot.
+  const [mcp, setMcp] = useState<McpRuntime>(emptyMcpRuntime);
   const [mcpServers, setMcpServers] = useState(config.mcpServers);
   // Guards /mcp reload | login against overlapping runs (each closes and
   // reconnects clients; two at once would race the client list).
@@ -148,6 +144,45 @@ export default function App({
   useEffect(() => {
     if (hasApiKey(providers[provider])) primeModels(provider);
     // Intentionally run once for the initial provider only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Connect the configured MCP servers in the BACKGROUND, so the UI drew
+  // instantly above instead of waiting on a slow/unreachable server (each
+  // connect can take up to 20s). Status and per-server warnings arrive as
+  // system messages once the connect settles; until then tools are simply
+  // absent. Runs once on mount for the startup server set.
+  useEffect(() => {
+    const names = Object.keys(config.mcpServers);
+    if (names.length === 0) return;
+    let cancelled = false;
+    void connectMcpServers(config.mcpServers).then((runtime) => {
+      // Unmounted (or a double-invoked effect) before the connect settled —
+      // close the now-orphaned clients so no socket/subprocess leaks.
+      if (cancelled) {
+        void closeMcpClients(runtime.clients);
+        return;
+      }
+      setMcp(runtime);
+      // Stay quiet on success — no "MCP ready" note — so the home banner
+      // survives a clean startup. Only genuine problems (a server that failed,
+      // needs login, or a config issue) surface as system messages, since those
+      // are the sole on-screen signal that tools are missing; /mcp shows the
+      // full per-server state on demand.
+      if (runtime.warnings.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          ...runtime.warnings.map((content) => ({
+            role: "system" as const,
+            content,
+          })),
+        ]);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Runs once on mount for the startup server set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -494,7 +529,9 @@ export default function App({
       // close MCP clients so their subprocesses don't outlive syd.
       void (async () => {
         await pendingSave.current.catch(() => {});
-        await closeMcpClients(mcp.clients);
+        // Best-effort close, but capped tight — quitting shouldn't wait on a
+        // sluggish server. process.exit reclaims anything still open.
+        await closeMcpClients(mcp.clients, 1_000);
         renderer.destroy();
         process.exit(0);
       })();
