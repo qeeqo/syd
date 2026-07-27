@@ -44,6 +44,13 @@ import {
 import { loginMcpServer } from "./mcpOAuth";
 import type { CommandContext, Message } from "./commands/type";
 
+// How often buffered stream tokens are committed to the transcript (~30fps).
+// Tokens arrive faster than this; coalescing them to a steady frame cadence
+// keeps the markdown re-parse and sticky-scroll re-pin from firing per token,
+// which is what made long, fast replies lag and jump. Small enough that text
+// still reads as live streaming.
+const DELTA_FLUSH_MS = 33;
+
 type AppProps = {
   // Resolved startup config (from ~/.sydcli/config.json, defaults filled in)
   // and any warnings from parsing it, surfaced as opening system messages.
@@ -99,6 +106,14 @@ export default function App({
   // Set while a turn is streaming so Escape can abort it (see the useKeyboard
   // handler below); cleared when the turn settles.
   const abortRef = useRef<AbortController | null>(null);
+  // Streamed tokens are coalesced here and flushed on a frame-paced timer,
+  // not committed one-per-token. Every commit re-lexes the growing trailing
+  // markdown block and re-pins the sticky scroll, so a per-token cadence makes
+  // long, fast replies lag and jump as blocks reflow. `pendingDelta` holds the
+  // text accumulated since the last flush; `flushHandle` is the scheduled timer
+  // (null when nothing is pending).
+  const pendingDelta = useRef("");
+  const flushHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // True while any popup owns the keyboard. Drives both the input's focus (it
   // must not swallow keys meant for the popup) and the Escape-to-cancel gate
@@ -611,6 +626,28 @@ export default function App({
     );
   }
 
+  // Commit any buffered stream text to the open assistant bubble and cancel a
+  // pending flush. Called by the flush timer, before any mid-stream insert, and
+  // once at turn settle — so coalescing never drops or reorders text. Appends
+  // to the open assistant bubble, or opens a new one when a tool note is the
+  // last entry (so text after a tool call lands below it, preserving order).
+  function flushDelta() {
+    if (flushHandle.current !== null) {
+      clearTimeout(flushHandle.current);
+      flushHandle.current = null;
+    }
+    const chunk = pendingDelta.current;
+    if (chunk.length === 0) return;
+    pendingDelta.current = "";
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.role === "assistant") {
+        return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+      }
+      return [...prev, { role: "assistant", content: chunk }];
+    });
+  }
+
   // Append a transcript entry (tool note, denial notice) mid-stream in true
   // chronological order: it lands after whatever the model has said so far,
   // and a fresh placeholder re-opens below it so subsequent text (and the
@@ -618,6 +655,8 @@ export default function App({
   // *empty* placeholder is dropped first so the note doesn't leave a bare
   // "syd" header hanging over it.
   function insertDuringStream(msg: Message) {
+    // Land any buffered text on the current bubble before the note splits it.
+    flushDelta();
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       const base =
@@ -671,19 +710,13 @@ export default function App({
         mcpGated: mcp.gated,
         abortSignal: controller.signal,
         onDelta: (delta) => {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            // Append to the open assistant bubble, or start a new one if a tool
-            // note is the last thing in the transcript — so text after a tool
-            // call lands below it, preserving order.
-            if (last && last.role === "assistant") {
-              return [
-                ...prev.slice(0, -1),
-                { ...last, content: last.content + delta },
-              ];
-            }
-            return [...prev, { role: "assistant", content: delta }];
-          });
+          // Buffer the token and let the frame timer commit it (flushDelta);
+          // committing per token re-parses and re-pins on every token, which is
+          // what made long/fast replies lag and jump.
+          pendingDelta.current += delta;
+          if (flushHandle.current === null) {
+            flushHandle.current = setTimeout(flushDelta, DELTA_FLUSH_MS);
+          }
         },
         onToolEvent: (evt) => {
           const note = describeToolEvent(evt);
@@ -715,6 +748,10 @@ export default function App({
     } finally {
       const cancelled = controller.signal.aborted;
       abortRef.current = null;
+      // Commit any tail buffered since the last flush before the turn settles,
+      // so the finalized transcript (and the streaming=false markdown re-parse)
+      // sees the complete text — nothing is left stranded in the buffer.
+      flushDelta();
       setIsStreaming(false);
       // A turn that ended on a tool call (or denial) re-opened an empty
       // placeholder that would render as a bare "syd" header — drop it.
