@@ -12,6 +12,9 @@ import ModelPicker from "./components/modelPicker";
 import McpToolsPopup, {
   type McpServerView,
 } from "./components/mcpToolsPopup";
+import SettingsPopup, { type SettingItem } from "./components/settingsPopup";
+import SkillsPopup from "./components/skillsPopup";
+import AskUserPopup from "./components/askUserPopup";
 import { saveApiKey, verifyApiKey, saveChatGPTTokens } from "./auth";
 import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "./oauth";
 import { copyToClipboard } from "./clipboard";
@@ -33,8 +36,16 @@ import {
   loadConfig,
   saveMcpServer,
   removeMcpServerFromConfig,
+  saveSettings,
+  saveSkill,
+  removeSkillFromConfig,
   type Config,
 } from "./config";
+import {
+  findMentionedSkills,
+  type Skill,
+} from "./skills";
+import type { AskUserRequest } from "./tools";
 import {
   connectMcpServers,
   closeMcpClients,
@@ -79,6 +90,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   const [keyPrompt, setKeyPrompt] = useState<Provider | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [mcpToolsOpen, setMcpToolsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [approval, setApproval] = useState<{
     request: ApprovalRequest;
@@ -90,6 +103,21 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // toggled mid-turn; the state drives the input-box indicator.
   const [autoApprove, setAutoApproveState] = useState(config.autoApprove);
   const autoApproveRef = useRef(config.autoApprove);
+  // Whether syd may run shell commands (the runCommand tool). Off by default;
+  // toggled in /settings, which persists it to config.json. Read at submit time
+  // to decide whether the shell tool joins the turn's tool set — it never needs
+  // to change mid-turn, so plain state (no ref) is enough.
+  const [shellEnabled, setShellEnabledState] = useState(config.shellEnabled);
+  // Defined skills (@name → instructions). Drives the @ palette and the /skills
+  // manager. The ref mirrors the state so the model's skill tools can read the
+  // live list mid-turn (setState is async); persist/remove update both.
+  const [skills, setSkills] = useState<Skill[]>(config.skills);
+  const skillsRef = useRef<Skill[]>(config.skills);
+  // A model-driven askUser question awaiting the user's answer. The resolver is
+  // kept in a ref (not state) so the turn's finally can settle a still-pending
+  // question without a second render or a double-resolve.
+  const [askUserReq, setAskUserReq] = useState<AskUserRequest | null>(null);
+  const askUserResolve = useRef<((answer: string) => void) | null>(null);
   // The live MCP runtime (tools/gated/clients) and the server config that
   // produced it. Starts empty and is filled by the background connect on mount
   // (see below); /mcp reload replaces it wholesale — so buildMcpViews,
@@ -120,8 +148,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     keyPrompt !== null ||
     helpOpen ||
     mcpToolsOpen ||
+    settingsOpen ||
+    skillsOpen ||
     modelPickerOpen ||
-    approval !== null;
+    approval !== null ||
+    askUserReq !== null;
 
   // Escape cancels an in-flight turn. Global keypress handler (fires even while
   // the input is focused), gated so it only acts mid-stream and only when no
@@ -267,6 +298,67 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return next;
   }
 
+  // Persist a skill and reflect it in live state + the ref the model tools read.
+  // Shared by the /skills popup and the saveSkill tool, so tool-driven and
+  // popup-driven edits stay consistent. `previousName` (a rename from the popup)
+  // is removed after the new one lands. skillsRef is the source of truth here so
+  // a follow-up tool call in the same turn sees the change immediately.
+  async function persistSkill(
+    skill: Skill,
+    previousName?: string | null,
+  ): Promise<void> {
+    await saveSkill(skill);
+    if (previousName && previousName !== skill.name) {
+      await removeSkillFromConfig(previousName).catch(() => {});
+    }
+    const rest = skillsRef.current.filter(
+      (s) => s.name !== skill.name && s.name !== previousName,
+    );
+    const next = [...rest, skill].sort((a, b) => a.name.localeCompare(b.name));
+    skillsRef.current = next;
+    setSkills(next);
+  }
+
+  // Delete a skill from disk and live state. Returns false (no change) when it
+  // wasn't defined, so the model tool can report "no such skill".
+  async function removeSkill(name: string): Promise<boolean> {
+    const removed = await removeSkillFromConfig(name);
+    if (removed) {
+      const next = skillsRef.current.filter((s) => s.name !== name);
+      skillsRef.current = next;
+      setSkills(next);
+    }
+    return removed;
+  }
+
+  // Park a model-driven question until the user answers it in the popup. The
+  // resolver lives in a ref so the turn's finally can settle a still-open one.
+  function requestUserAnswer(request: AskUserRequest): Promise<string> {
+    return new Promise((resolve) => {
+      askUserResolve.current = resolve;
+      setAskUserReq(request);
+    });
+  }
+
+  // The askUser popup's single exit point (answer or dismiss): close it and
+  // resolve the paused tool so the turn continues. Safe to call with nothing
+  // pending (the ref guards the resolve).
+  function settleUserAnswer(answer: string) {
+    const resolve = askUserResolve.current;
+    askUserResolve.current = null;
+    setAskUserReq(null);
+    resolve?.(answer);
+  }
+
+  // The skill operations handed to the model's saveSkill/deleteSkill tools —
+  // the same code paths /skills uses. `list` reads the live ref so a tool sees
+  // edits made earlier in the same turn.
+  const skillActions = {
+    save: (skill: Skill) => persistSkill(skill),
+    remove: (name: string) => removeSkill(name),
+    list: () => skillsRef.current,
+  };
+
   const ctx: CommandContext = {
     addSystemMessage: (text) =>
       setMessages((prev) => [...prev, { role: "system", content: text }]),
@@ -354,6 +446,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       applyProvider(providers[normalized]);
     },
     showHelp: () => setHelpOpen(true),
+    showSettings: () => setSettingsOpen(true),
+    showSkills: () => setSkillsOpen(true),
     showMcpTools: () => {
       if (Object.keys(mcpServers).length === 0) {
         ctx.addSystemMessage(
@@ -707,6 +801,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   async function handleSubmit(message: string) {
     if (dispatch(message, ctx)) return;
 
+    // Skills invoked with @name in this message — their instructions are
+    // injected into the system prompt for this turn only (per-message, not
+    // sticky). Unknown @mentions are ignored (@ is ordinary text).
+    const invokedSkills = findMentionedSkills(message, skills);
+
     const userMsg: Message = { role: "user", content: message };
     // Drop system notes and empty placeholders, then collapse consecutive
     // assistant bubbles (one turn's text, split around tool notes) back into a
@@ -745,6 +844,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         messages: history.map(({ role, content }) => ({ role, content })),
         mcpTools: mcp.tools,
         mcpGated: mcp.gated,
+        shellEnabled,
+        skills: invokedSkills,
+        onAskUser: requestUserAnswer,
+        skillActions,
         abortSignal: controller.signal,
         onDelta: (delta) => {
           // Buffer the token and let the frame timer commit it (flushDelta);
@@ -768,7 +871,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           // the transcript as a diff via onToolEvent). Manual mode: park the
           // resolver in state; the popup's keypress calls it via
           // handleApprovalDecision, which un-pauses the stream.
-          autoApproveRef.current
+          //
+          // Shell commands are the one exception: they ALWAYS prompt, even under
+          // auto-approve. Auto-applying a file diff you can see is one thing;
+          // silently running arbitrary shell (no path-containment safety net) is
+          // a far bigger blast radius, so it stays a deliberate, per-command
+          // decision.
+          autoApproveRef.current && request.tool !== "runCommand"
             ? Promise.resolve(true)
             : new Promise<boolean>((resolve) => {
                 setApproval({ request, resolve });
@@ -785,6 +894,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     } finally {
       const cancelled = controller.signal.aborted;
       abortRef.current = null;
+      // A question left parked (e.g. the turn errored out while its popup was
+      // open) is settled so its tool promise never dangles and no ghost popup
+      // lingers. Normal answers clear the ref before we reach here.
+      if (askUserResolve.current) {
+        settleUserAnswer("(the question was cancelled)");
+      }
       // Commit any tail buffered since the last flush before the turn settles,
       // so the finalized transcript (and the streaming=false markdown re-parse)
       // sees the complete text — nothing is left stranded in the buffer.
@@ -805,6 +920,50 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
     }
   }
+
+  // Flip one setting from the /settings popup: update the live state so the
+  // change takes effect immediately, and persist it to config.json so it
+  // survives a restart. A save failure is surfaced but doesn't roll back the
+  // in-memory toggle — the setting still applies this session.
+  function toggleSetting(key: string) {
+    const reportSaveError = (err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      ctx.addSystemMessage(`failed to save settings: ${msg}`);
+    };
+    if (key === "shell") {
+      const next = !shellEnabled;
+      setShellEnabledState(next);
+      void saveSettings({ shellEnabled: next }).catch(reportSaveError);
+    } else if (key === "autoApprove") {
+      // Mirror the state into the ref too, so the streaming approval closure
+      // (which reads autoApproveRef) sees the change even mid-turn.
+      const next = !autoApproveRef.current;
+      autoApproveRef.current = next;
+      setAutoApproveState(next);
+      void saveSettings({ autoApprove: next }).catch(reportSaveError);
+    }
+  }
+
+  // The toggleable preferences shown in /settings, built from live state so the
+  // popup always reflects (and re-renders on) the current values.
+  const settingItems: SettingItem[] = [
+    {
+      key: "shell",
+      label: "Shell commands",
+      description:
+        "Let syd run shell commands (lint, tests, build). Each command still " +
+        "asks for your approval before it runs — even with auto-approve on.",
+      value: shellEnabled,
+    },
+    {
+      key: "autoApprove",
+      label: "Auto-approve edits",
+      description:
+        "Apply file edits and MCP tool calls without a confirmation popup. " +
+        "Shell commands always ask regardless. Off is safer.",
+      value: autoApprove,
+    },
+  ];
 
   // Assemble the /mcp window's data: every declared server, paired with the
   // tools that actually connected. Namespaced keys carry the server prefix; the
@@ -852,6 +1011,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         title={sessionTitle}
         model={model}
         autoApprove={autoApprove}
+        shellEnabled={shellEnabled}
+        skills={skills}
         // Unfocus while a popup is open so keystrokes can't leak into the
         // draft; the popup owns the keyboard instead.
         focused={!overlayOpen}
@@ -931,6 +1092,72 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           <McpToolsPopup
             servers={buildMcpViews()}
             onDismiss={() => setMcpToolsOpen(false)}
+          />
+        </box>
+      )}
+      {settingsOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <SettingsPopup
+            items={settingItems}
+            onToggle={toggleSetting}
+            onDismiss={() => setSettingsOpen(false)}
+          />
+        </box>
+      )}
+      {skillsOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <SkillsPopup
+            skills={skills}
+            onSave={(skill, previousName) => {
+              void persistSkill(skill, previousName).catch((err) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                ctx.addSystemMessage(`failed to save skill: ${msg}`);
+              });
+            }}
+            onDelete={(name) => {
+              void removeSkill(name).catch((err) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                ctx.addSystemMessage(`failed to delete skill: ${msg}`);
+              });
+            }}
+            onDismiss={() => setSkillsOpen(false)}
+          />
+        </box>
+      )}
+      {askUserReq && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <AskUserPopup
+            request={askUserReq}
+            onAnswer={settleUserAnswer}
+            onDismiss={() =>
+              settleUserAnswer(
+                "(the user dismissed the question without answering)",
+              )
+            }
           />
         </box>
       )}

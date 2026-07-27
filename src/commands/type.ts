@@ -35,6 +35,12 @@ export type CommandContext = {
   toggleAutoApprove: () => void;
   // Open the command-reference popup.
   showHelp: () => void;
+  // Open the settings popup (toggle shell access, auto-approve). Each toggle
+  // persists to config.json.
+  showSettings: () => void;
+  // Open the skills manager popup (create / edit / delete @-invoked skills).
+  // Each change persists to config.json.
+  showSkills: () => void;
   // Open the scrollable MCP-tools reference window (every connected server's
   // tools + descriptions). No-op with a system note when none are configured.
   showMcpTools: () => void;

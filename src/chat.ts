@@ -13,9 +13,14 @@ import { providers, type ProviderId } from "./providers";
 import { ensureProviderReady } from "./auth";
 import {
   projectTools,
+  shellTools,
+  makeInteractiveTools,
   previewToolCall,
   type ToolEvent,
+  type AskUserRequest,
+  type SkillActions,
 } from "./tools";
+import { buildSkillPrompt, type Skill } from "./skills";
 import type { ToolNote } from "./commands/type";
 
 // Without this the model tends to answer questions about "the code" from
@@ -33,6 +38,34 @@ const SYSTEM_PROMPT =
   `Use deleteFile only when the user explicitly asks to remove a file. ` +
   `File changes require the user's approval; when one is not approved, do ` +
   `not retry it — ask the user what they want instead.`;
+
+// Appended only when the user has enabled shell access in /settings. Kept out
+// of the base prompt so a model without the tool is never told to reach for it.
+const SHELL_PROMPT =
+  ` You can also run shell commands with runCommand — use it to run this ` +
+  `project's own tooling (its linter, type check, tests, or build, e.g. ` +
+  `\`bun run lint\`, \`bun run build\`, \`bun test\`) and to verify your ` +
+  `changes actually work. Prefer the project's own scripts over ad-hoc ` +
+  `commands. Every command needs the user's approval before it runs; when ` +
+  `one is denied, do not rerun it — ask the user instead.`;
+
+// Appended when the skill tools are wired (App always wires them). Tells the
+// model that skills exist, how the user invokes them, and that it can manage
+// them on request. The per-turn instructions of an *invoked* skill are added
+// separately (buildSkillPrompt), after this.
+const SKILLS_PROMPT =
+  ` The user can define reusable "skills" — saved instructions they invoke by ` +
+  `writing @<name> in a message. When the user asks you to create, change, or ` +
+  `remove a skill, use saveSkill / deleteSkill (saving asks for their approval ` +
+  `first). Do not treat an @name in a normal message as a command to run — the ` +
+  `system already injects an invoked skill's instructions for you.`;
+
+// Appended when the askUser tool is wired. A nudge to prefer asking over
+// guessing when the request is genuinely ambiguous.
+const ASK_USER_PROMPT =
+  ` When a request is ambiguous or you need the user to choose between options, ` +
+  `call askUser to pop up a question and wait for their answer instead of ` +
+  `guessing. Don't overuse it — only when a real decision is theirs to make.`;
 
 // A write the model wants to make, awaiting the user's decision. `note` is
 // the preview (label + diff) of what would change; null means the call will
@@ -62,6 +95,20 @@ export type StreamChatArgs = {
   // Names of MCP tools that must go through the approval popup — everything from
   // a non-trusted server. Added to the built-in file tools' approval gate.
   mcpGated?: string[];
+  // Whether the user has enabled shell access in /settings. When true the
+  // runCommand tool is added to the tool set (and always gated); when false it
+  // is absent entirely, so the model can't run commands.
+  shellEnabled?: boolean;
+  // The skills the user invoked in this message (@name), already resolved by
+  // App. Their instructions are appended to the system prompt for this turn
+  // only — invocation is per-message, not sticky.
+  skills?: Skill[];
+  // Opens the interactive "ask the user" popup and resolves with their answer.
+  // Absent → the askUser tool is not offered (headless fail-soft).
+  onAskUser?: (req: AskUserRequest) => Promise<string>;
+  // Persist/list skills for the saveSkill / deleteSkill tools. Absent → those
+  // tools are not offered. These are the same code paths /skills uses.
+  skillActions?: SkillActions;
   // Cancels the turn when it fires (user pressed Escape). Aborts the in-flight
   // model call and ends the approval loop; whatever streamed so far is kept.
   abortSignal?: AbortSignal;
@@ -80,6 +127,10 @@ export async function streamChat({
   onApprovalRequest,
   mcpTools,
   mcpGated,
+  shellEnabled,
+  skills,
+  onAskUser,
+  skillActions,
   abortSignal,
 }: StreamChatArgs) {
   // Refresh OAuth credentials before the first call so resolve() reads a live
@@ -100,20 +151,46 @@ export async function streamChat({
       ? { openai: { store: false } }
       : undefined;
 
-  // Local project tools plus any connected MCP server tools, in one object —
-  // the single tools set for the whole turn. Built once; the approval loop
-  // re-calls streamText but the tool wiring never changes between rounds.
-  const tools: ToolSet = { ...projectTools, ...mcpTools };
+  // The interactive tools (askUser + the skill tools) are built from the
+  // callbacks App wired; a missing callback simply omits its tool.
+  const interactiveTools = makeInteractiveTools({ onAskUser, skillActions });
 
-  // Approval gate. The three file-changing local tools always require it; every
-  // non-trusted MCP tool is added on top. Read-only local tools and tools from
-  // a trusted server are absent here, so they run without a prompt.
+  // Local project tools, the opt-in shell tool (only when enabled), the
+  // interactive tools, and any connected MCP server tools, in one object — the
+  // single tools set for the whole turn. Built once; the approval loop re-calls
+  // streamText but the tool wiring never changes between rounds.
+  const tools: ToolSet = {
+    ...projectTools,
+    ...(shellEnabled ? shellTools : {}),
+    ...interactiveTools,
+    ...mcpTools,
+  };
+
+  // Approval gate. The three file-changing local tools always require it; the
+  // shell tool (when present), the skill-writing tools (when wired), and every
+  // non-trusted MCP tool are added on top. Read-only local tools, askUser (an
+  // interaction, not a side effect), and tools from a trusted server are absent
+  // here, so they run without a prompt.
   const toolApproval: Record<string, "user-approval"> = {
     editFile: "user-approval",
     writeFile: "user-approval",
     deleteFile: "user-approval",
   };
+  if (shellEnabled) toolApproval.runCommand = "user-approval";
+  if (skillActions) {
+    toolApproval.saveSkill = "user-approval";
+    toolApproval.deleteSkill = "user-approval";
+  }
   for (const name of mcpGated ?? []) toolApproval[name] = "user-approval";
+
+  // Assemble the system prompt once (it doesn't change across approval rounds):
+  // base + optional shell clause + the skill/askUser capability clauses (only
+  // when their tools are wired) + this turn's invoked-skill instructions.
+  let system = SYSTEM_PROMPT;
+  if (shellEnabled) system += SHELL_PROMPT;
+  if (skillActions) system += SKILLS_PROMPT;
+  if (onAskUser) system += ASK_USER_PROMPT;
+  system += buildSkillPrompt(skills ?? []);
 
   for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
     // A cancel that lands between rounds (after a tool result, before the next
@@ -122,7 +199,7 @@ export async function streamChat({
 
     const result = streamText({
       model: providers[provider].resolve(model),
-      system: SYSTEM_PROMPT,
+      system,
       messages: convo,
       providerOptions,
       abortSignal,

@@ -3,12 +3,17 @@
 // here, and the result is fed back as a tool-result message. Pure module:
 // no React, no UI imports, so a future headless core can reuse it as-is.
 
-import { tool } from "ai";
+import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { structuredPatch } from "diff";
 import { readdir, stat, unlink } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import type { ToolNote } from "./commands/type";
+import {
+  normalizeSkillName,
+  MAX_SKILL_INSTRUCTIONS,
+  type Skill,
+} from "./skills";
 
 // Everything the model touches must stay inside the project. resolve()
 // collapses any ../ segments, so a prefix check on the result is sufficient —
@@ -347,6 +352,335 @@ export const projectTools = {
   }),
 };
 
+// --- Shell tool -------------------------------------------------------------
+// A single "run a command" tool, kept separate from projectTools because it is
+// opt-in: chat.ts only merges it into the tool set when the user has enabled
+// shell access in /settings. Unlike the file tools it has NO path-containment
+// safety net — a shell interprets the whole string, so `cd ..`, `curl | sh`,
+// and reading files outside the project are all reachable. Its entire safety
+// story is therefore the approval popup (the exact command is shown) plus the
+// runtime guards below; it is always gated and never covered by auto-approve.
+
+// How much command output is fed back to the model / shown. A long test log
+// shouldn't swamp the context window, so we keep only the TAIL — build and test
+// tools print their errors and summaries last.
+const MAX_OUTPUT_BYTES = 100_000;
+
+// Hard ceiling on run time. A hung server or an accidental infinite loop can't
+// wedge the turn forever — the child is killed once this elapses.
+const SHELL_TIMEOUT_MS = 120_000;
+
+// Last-resort valve against runaway output (e.g. an infinite `yes`): once a
+// command emits this many bytes we kill it (see readPipe's overflow path), so
+// an endless producer can't accumulate unbounded memory before the timeout
+// fires. Far above any legitimate build or test log, so normal runs are
+// untouched — only genuinely unbounded ones die.
+const SHELL_MAX_BUFFER = 10_000_000;
+
+// How long, after the process exits, we keep draining its pipes before forcing
+// them closed. A killed command can leave an orphaned grandchild holding the
+// pipe open (e.g. `sh` is killed but its `sleep` child lingers); without this
+// grace-then-cancel the read would block until that grandchild also exits,
+// making Escape feel unresponsive. Long enough to catch a fast child's final
+// buffered bytes, short enough that cancellation is effectively immediate.
+const DRAIN_GRACE_MS = 150;
+
+// Read a process pipe into byte chunks until EOF, cancellation, or the running
+// total exceeds `cap` — at which point it calls onOverflow (used to kill a
+// runaway producer) and stops. Returns a handle whose `done` promise settles
+// when reading finishes and whose `cancel` force-stops a read that's blocked
+// waiting on EOF. Never throws: a cancelled/errored read resolves what it has.
+function readPipe(
+  stream: ReadableStream<Uint8Array>,
+  cap: number,
+  onOverflow: () => void,
+) {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let overflowed = false;
+  const done = (async () => {
+    try {
+      for (;;) {
+        const { done: finished, value } = await reader.read();
+        if (finished) break;
+        chunks.push(value);
+        total += value.length;
+        if (total > cap && !overflowed) {
+          overflowed = true;
+          onOverflow();
+        }
+      }
+    } catch {
+      // Cancelled or the stream errored — keep whatever we collected.
+    } finally {
+      reader.releaseLock();
+    }
+  })();
+  return {
+    done,
+    cancel: () => void reader.cancel().catch(() => {}),
+    text: () => new TextDecoder().decode(concatChunks(chunks, total)),
+  };
+}
+
+function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return out;
+}
+
+// Keep only the last `max` characters, marking the cut so the model knows text
+// was dropped. Length is a close-enough proxy for bytes here — this is a safety
+// cap, not an exact budget.
+function tailClamp(
+  text: string,
+  max: number,
+): { text: string; truncated: boolean } {
+  if (text.length <= max) return { text, truncated: false };
+  return {
+    text: `…[${text.length - max} earlier characters truncated]\n${text.slice(-max)}`,
+    truncated: true,
+  };
+}
+
+// The result of a runCommand call. Returned as an object (like WriteResult) so
+// the model reads structured output and describeToolEvent can build a transcript
+// label from it. A non-zero exitCode is a normal outcome, not an error.
+export type ShellResult = {
+  command: string;
+  // null when the process was killed by a signal (timeout / abort / maxBuffer)
+  // rather than exiting on its own.
+  exitCode: number | null;
+  timedOut: boolean;
+  aborted: boolean;
+  truncated: boolean;
+  stdout: string;
+  stderr: string;
+};
+
+export const shellTools = {
+  runCommand: tool({
+    description:
+      "Run a shell command in the project's root directory and return its " +
+      "stdout, stderr, and exit code. Use this to run the project's own " +
+      "tooling — linters, type checks, tests, build steps (e.g. `bun run " +
+      "lint`, `bun run build`, `bun test`) — and read-only inspection " +
+      "commands. Runs via `sh -c` with stdin closed, so never use an " +
+      "interactive command that waits for input. A non-zero exit code is a " +
+      "normal result, not an error — read stderr to see what failed. Every " +
+      "command requires the user's approval before it runs; if one is denied, " +
+      "do not rerun it — ask the user what they want instead.",
+    inputSchema: z.object({
+      command: z
+        .string()
+        .describe("The shell command line to run, e.g. 'bun run lint'"),
+    }),
+    execute: async (
+      { command },
+      { abortSignal },
+    ): Promise<ShellResult | string> => {
+      const trimmed = command.trim();
+      if (trimmed === "") return "error: command must not be empty";
+      try {
+        const proc = Bun.spawn(["sh", "-c", trimmed], {
+          cwd: process.cwd(),
+          stdin: "ignore", // never block waiting on interactive input
+          stdout: "pipe",
+          stderr: "pipe",
+          signal: abortSignal, // Escape/cancel kills the child too
+          timeout: SHELL_TIMEOUT_MS,
+          killSignal: "SIGKILL",
+        });
+        // Drain both pipes concurrently so a child that fills a pipe buffer can
+        // keep writing (reading only after exit would deadlock on large output).
+        // A running total over SHELL_MAX_BUFFER kills a runaway producer — the
+        // portable guard, not relying on the spawn-level maxBuffer option.
+        const kill = () => proc.kill("SIGKILL");
+        const out = readPipe(proc.stdout, SHELL_MAX_BUFFER, kill);
+        const err = readPipe(proc.stderr, SHELL_MAX_BUFFER, kill);
+        // Wait for the process itself, not for pipe EOF: an orphaned grandchild
+        // can hold the pipe open past the child's death. After exit we give the
+        // pipes a brief grace to flush, then force the readers closed so a
+        // lingering grandchild can never wedge the turn.
+        await proc.exited;
+        await Promise.race([
+          Promise.all([out.done, err.done]),
+          Bun.sleep(DRAIN_GRACE_MS),
+        ]);
+        out.cancel();
+        err.cancel();
+        await Promise.all([out.done, err.done]);
+        const outClamped = tailClamp(out.text(), MAX_OUTPUT_BYTES);
+        const errClamped = tailClamp(err.text(), MAX_OUTPUT_BYTES);
+        // exitCode is null when the process was killed by a signal. An abort is
+        // the user cancelling; otherwise a signal-kill here means the timeout
+        // (or the output-cap kill) fired.
+        const aborted = abortSignal?.aborted ?? false;
+        const timedOut = proc.exitCode === null && !aborted;
+        return {
+          command: trimmed,
+          exitCode: proc.exitCode,
+          timedOut,
+          aborted,
+          truncated: outClamped.truncated || errClamped.truncated,
+          stdout: outClamped.text,
+          stderr: errClamped.text,
+        };
+      } catch (err) {
+        // A pre-aborted signal makes spawn throw — report it as a clean cancel
+        // rather than a tool failure.
+        if (abortSignal?.aborted) return "error: command cancelled";
+        const msg = err instanceof Error ? err.message : String(err);
+        return `error: ${msg}`;
+      }
+    },
+  }),
+};
+
+// --- Interactive tools ------------------------------------------------------
+// Tools that reach back into the running app rather than only touching disk:
+// `askUser` pops up a question and waits for the answer, and the two skill tools
+// let the model create/remove skills on request. They can't be static like the
+// file tools (they need callbacks into App's state + popups), so a factory
+// closes over the injected handlers. chat.ts builds these per-turn from what
+// App provides and merges the result into the same `tools` object. A handler
+// left out simply omits its tool — the fail-soft path for a headless embedder
+// that doesn't wire them.
+
+// What the model wants to ask the user. `options` are selectable labels;
+// `allowInput` also offers a free-text answer. Surfaced to App, which renders
+// the popup and resolves with the chosen/typed string.
+export type AskUserRequest = {
+  question: string;
+  options: string[];
+  allowInput: boolean;
+};
+
+// The skill operations App exposes to the model tools: `save` persists a skill
+// (and updates live state), `remove` deletes one (false if absent), `list`
+// returns the current skills so the model can read what already exists. All are
+// the same code paths the /skills popup uses, so tool-driven and popup-driven
+// edits stay consistent.
+export type SkillActions = {
+  save: (skill: Skill) => Promise<void>;
+  remove: (name: string) => Promise<boolean>;
+  list: () => Skill[];
+};
+
+export type InteractiveDeps = {
+  onAskUser?: (req: AskUserRequest) => Promise<string>;
+  skillActions?: SkillActions;
+};
+
+export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
+  const tools: ToolSet = {};
+
+  if (deps.onAskUser) {
+    const onAskUser = deps.onAskUser;
+    tools.askUser = tool({
+      description:
+        "Ask the user a question and wait for their answer, shown as a popup " +
+        "with selectable options. Use this whenever you need the user to make " +
+        "a choice or clarify something before proceeding, instead of guessing " +
+        "or assuming. Give a few short, distinct options; set allowInput to " +
+        "also let them type a free-form answer. Returns the user's answer as " +
+        "text (or a note if they dismissed it without answering).",
+      inputSchema: z.object({
+        question: z.string().describe("The question to put to the user"),
+        options: z
+          .array(z.string())
+          .describe(
+            "Selectable answers, each a short label. May be empty when you only want free text.",
+          ),
+        allowInput: z
+          .boolean()
+          .optional()
+          .describe("Also let the user type a custom answer"),
+      }),
+      execute: async ({ question, options, allowInput }) => {
+        const q = question.trim();
+        if (!q) return "error: question must not be empty";
+        const opts = (options ?? []).map((o) => o.trim()).filter(Boolean);
+        const allow = allowInput ?? false;
+        if (opts.length === 0 && !allow) {
+          return "error: provide at least one option, or set allowInput to accept free text";
+        }
+        return await onAskUser({ question: q, options: opts, allowInput: allow });
+      },
+    });
+  }
+
+  if (deps.skillActions) {
+    const skillActions = deps.skillActions;
+    tools.saveSkill = tool({
+      description:
+        "Create or update a reusable skill — saved instructions the user can " +
+        "later invoke by writing @<name> in a message. Use this when the user " +
+        "asks you to make, save, or change a skill. Pick a short, memorable, " +
+        "lowercase name. Requires the user's approval before it is saved.",
+      inputSchema: z.object({
+        name: z
+          .string()
+          .describe("Short skill handle, e.g. 'review' — invoked as @review"),
+        instructions: z
+          .string()
+          .describe("What syd should do when this skill is invoked"),
+      }),
+      execute: async ({ name, instructions }) => {
+        const normalized = normalizeSkillName(name);
+        if (!normalized) {
+          return `error: "${name}" is not a valid skill name — use letters, numbers, and hyphens`;
+        }
+        const body = instructions.trim();
+        if (!body) return "error: instructions must not be empty";
+        if (body.length > MAX_SKILL_INSTRUCTIONS) {
+          return `error: instructions are too long (max ${MAX_SKILL_INSTRUCTIONS} characters)`;
+        }
+        try {
+          const existed = skillActions.list().some((s) => s.name === normalized);
+          await skillActions.save({ name: normalized, instructions: body });
+          const summary = `${existed ? "updated" : "created"} skill @${normalized}`;
+          const result: { summary: string } = { summary };
+          return result;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `error: ${msg}`;
+        }
+      },
+    });
+
+    tools.deleteSkill = tool({
+      description:
+        "Delete a saved skill by name. Use only when the user asks to remove a " +
+        "skill. Requires the user's approval.",
+      inputSchema: z.object({
+        name: z.string().describe("The skill handle to delete, e.g. 'review'"),
+      }),
+      execute: async ({ name }) => {
+        const normalized = normalizeSkillName(name) ?? name.trim().toLowerCase();
+        try {
+          const removed = await skillActions.remove(normalized);
+          if (!removed) return `error: no skill named @${normalized}`;
+          const result: { summary: string } = {
+            summary: `deleted skill @${normalized}`,
+          };
+          return result;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `error: ${msg}`;
+        }
+      },
+    });
+  }
+
+  return tools;
+}
+
 // Preview what a write-tool call would do, without doing it — shown in the
 // approval popup. Returns null when there is nothing meaningful to preview:
 // non-write tools, malformed input, or a plan that fails validation (that
@@ -377,6 +711,35 @@ export async function previewToolCall(
   if (toolName === "deleteFile" && typeof i?.path === "string") {
     const plan = await planDelete(i.path);
     return plan.ok ? { label: plan.proposal, diffText: plan.diffText } : null;
+  }
+  // The shell tool has no diff to preview — the command string itself is the
+  // thing being authorized, so surface it in the label. The popup shows this
+  // prominently instead of the raw JSON args.
+  if (toolName === "runCommand" && typeof i?.command === "string") {
+    const cmd = i.command.trim();
+    return cmd ? { label: `run \`${cmd}\`` } : null;
+  }
+  // Saving a skill: show the body as an all-green diff so the approval popup
+  // reveals exactly what will be stored (not just the name). We diff against ""
+  // — the plan has no access to the existing skill here — so an update shows the
+  // full new instructions rather than only the delta, which is the part that
+  // matters when deciding to approve.
+  if (
+    toolName === "saveSkill" &&
+    typeof i?.name === "string" &&
+    typeof i?.instructions === "string"
+  ) {
+    const normalized = normalizeSkillName(i.name);
+    const body = i.instructions.trim();
+    if (!normalized || !body) return null;
+    return {
+      label: `save skill @${normalized}`,
+      diffText: unifiedDiff(`@${normalized}`, "", body),
+    };
+  }
+  if (toolName === "deleteSkill" && typeof i?.name === "string") {
+    const normalized = normalizeSkillName(i.name) ?? i.name.trim().toLowerCase();
+    return normalized ? { label: `delete skill @${normalized}` } : null;
   }
   return null;
 }
@@ -419,6 +782,32 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
         return { label: out.summary, diffText: out.diffText };
       }
       return { label: `${evt.tool} ${path}` };
+    }
+    case "runCommand": {
+      const out = evt.output as Partial<ShellResult> | null;
+      const cmd =
+        (out && typeof out.command === "string" && out.command) ||
+        (typeof input?.command === "string" ? input.command : "");
+      if (out?.aborted) return { label: `$ ${cmd} — cancelled` };
+      if (out?.timedOut) return { label: `$ ${cmd} — timed out` };
+      if (out && typeof out.exitCode !== "undefined") {
+        return { label: `$ ${cmd} (exit ${out.exitCode ?? "killed"})` };
+      }
+      return { label: `$ ${cmd}` };
+    }
+    case "saveSkill":
+    case "deleteSkill": {
+      // Both return { summary } on success (past tense, ready for the transcript).
+      const out = evt.output as { summary?: unknown } | null;
+      if (out && typeof out.summary === "string") return { label: out.summary };
+      return { label: evt.tool };
+    }
+    case "askUser": {
+      // input carries the question, output the user's answer string.
+      const q =
+        typeof input?.question === "string" ? input.question.trim() : "asked";
+      const answer = typeof evt.output === "string" ? evt.output.trim() : "";
+      return { label: answer ? `${q} → ${answer}` : q };
     }
     default:
       // Anything else — an MCP server tool. There's no local schema for its

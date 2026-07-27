@@ -16,6 +16,11 @@ import { join, dirname } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { providers, isProviderId, type ProviderId } from "./providers.ts";
 import type { McpServerConfig, McpTrust } from "./mcp.ts";
+import {
+  normalizeSkillName,
+  MAX_SKILL_INSTRUCTIONS,
+  type Skill,
+} from "./skills.ts";
 
 const CONFIG_FILE = join(homedir(), ".sydcli", "config.json");
 
@@ -25,9 +30,17 @@ export type Config = {
   provider: ProviderId;
   model: string;
   autoApprove: boolean;
+  // Whether syd may run shell commands (the runCommand tool). Off by default —
+  // it's opt-in because a shell command has no path-containment safety net.
+  // Toggled in /settings, which persists it here.
+  shellEnabled: boolean;
   // MCP servers to connect at startup, keyed by a short name that also
   // namespaces the server's tools. Empty when none are configured.
   mcpServers: Record<string, McpServerConfig>;
+  // Reusable user instructions invoked with @<name> in a message. Empty when
+  // none are defined. Sorted by name so the /skills list and @ palette have a
+  // stable order regardless of file/insertion order.
+  skills: Skill[];
 };
 
 // Built-in fallbacks, used when the file is absent, corrupt, or partial.
@@ -41,7 +54,9 @@ export function defaultConfig(): Config {
     provider: DEFAULT_PROVIDER,
     model: DEFAULT_MODEL,
     autoApprove: false,
+    shellEnabled: false,
     mcpServers: {},
+    skills: [],
   };
 }
 
@@ -200,6 +215,70 @@ function parseMcpServers(
   return out;
 }
 
+// --- skills parsing ---------------------------------------------------------
+// The `skills` object maps a handle to its instructions. Two on-disk shapes are
+// accepted for hand-editing convenience: a bare string ("review": "do X"), or an
+// object ("review": { "instructions": "do X" }). Each entry is validated
+// independently — a bad one is skipped with a warning, never fatal — and the key
+// is normalized through the same rule the rest of the app uses, so a
+// hand-written "My Skill" still lands as a legal @handle.
+
+function parseSkills(value: unknown, warnings: string[]): Skill[] {
+  if (value === undefined) return [];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    warnings.push("config: skills must be a JSON object — ignoring it");
+    return [];
+  }
+  const out: Skill[] = [];
+  const seen = new Set<string>();
+  for (const [rawName, raw] of Object.entries(value)) {
+    const name = normalizeSkillName(rawName);
+    if (!name) {
+      warnings.push(
+        `config: skill "${rawName}" has no usable name (letters, numbers, hyphens) — skipping`,
+      );
+      continue;
+    }
+    let instructions: string | undefined;
+    if (typeof raw === "string") {
+      instructions = raw;
+    } else if (
+      typeof raw === "object" &&
+      raw !== null &&
+      !Array.isArray(raw) &&
+      typeof (raw as Record<string, unknown>).instructions === "string"
+    ) {
+      instructions = (raw as Record<string, string>).instructions;
+    } else {
+      warnings.push(
+        `config: skill "${rawName}" must be a string or { instructions: string } — skipping`,
+      );
+      continue;
+    }
+    const trimmed = instructions.trim();
+    if (trimmed.length === 0) {
+      warnings.push(`config: skill "${rawName}" has empty instructions — skipping`);
+      continue;
+    }
+    if (seen.has(name)) {
+      warnings.push(
+        `config: skill "${rawName}" duplicates @${name} — keeping the first`,
+      );
+      continue;
+    }
+    seen.add(name);
+    // Clamp rather than reject: a slightly-too-long body still works, and
+    // silently dropping the skill would be more surprising than truncating it.
+    const body =
+      trimmed.length > MAX_SKILL_INSTRUCTIONS
+        ? trimmed.slice(0, MAX_SKILL_INSTRUCTIONS)
+        : trimmed;
+    out.push({ name, instructions: body });
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 // Where the config file lives — exposed so a /help line or error can point the
 // user at the exact path.
 export function configPath(): string {
@@ -276,10 +355,27 @@ export async function loadConfig(): Promise<{
     }
   }
 
+  // shellEnabled — a boolean. Off is the safe default (no shell access until
+  // the user opts in via /settings).
+  let shellEnabled = false;
+  if (obj.shellEnabled !== undefined) {
+    if (typeof obj.shellEnabled === "boolean") {
+      shellEnabled = obj.shellEnabled;
+    } else {
+      warnings.push("config: shellEnabled must be true or false — using false");
+    }
+  }
+
   // mcpServers — validated entry by entry; bad entries are skipped, not fatal.
   const mcpServers = parseMcpServers(obj.mcpServers, warnings);
 
-  return { config: { provider, model, autoApprove, mcpServers }, warnings };
+  // skills — same entry-by-entry discipline; a bad skill never poisons the rest.
+  const skills = parseSkills(obj.skills, warnings);
+
+  return {
+    config: { provider, model, autoApprove, shellEnabled, mcpServers, skills },
+    warnings,
+  };
 }
 
 // --- Writing config.json ----------------------------------------------------
@@ -317,6 +413,20 @@ function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
   return {};
 }
 
+// Persist top-level scalar preferences (the /settings popup) without disturbing
+// mcpServers or any other key — same RAW round-trip discipline as the mcp
+// writers. Only fields present in `patch` are written, so a toggle of one
+// setting never rewrites the others.
+export async function saveSettings(patch: {
+  autoApprove?: boolean;
+  shellEnabled?: boolean;
+}): Promise<void> {
+  const raw = await readRawConfig();
+  if (patch.autoApprove !== undefined) raw.autoApprove = patch.autoApprove;
+  if (patch.shellEnabled !== undefined) raw.shellEnabled = patch.shellEnabled;
+  await writeRawConfig(raw);
+}
+
 // Add or replace one MCP server in config.json, preserving every other key.
 export async function saveMcpServer(
   name: string,
@@ -337,6 +447,40 @@ export async function removeMcpServerFromConfig(name: string): Promise<boolean> 
   if (!(name in servers)) return false;
   delete servers[name];
   raw.mcpServers = servers;
+  await writeRawConfig(raw);
+  return true;
+}
+
+// Pull the raw skills object out of a raw config, or {} if missing / wrong
+// shape — same defensive read as rawMcpServers.
+function rawSkills(raw: Record<string, unknown>): Record<string, unknown> {
+  const value = raw.skills;
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+// Add or replace one skill in config.json, preserving every other key. Written
+// in the object form so a round-trip through loadConfig is lossless. The name
+// is assumed already normalized (the callers — the editor and the model tool —
+// normalize before persisting).
+export async function saveSkill(skill: Skill): Promise<void> {
+  const raw = await readRawConfig();
+  const skills = rawSkills(raw);
+  skills[skill.name] = { instructions: skill.instructions };
+  raw.skills = skills;
+  await writeRawConfig(raw);
+}
+
+// Remove one skill from config.json. Returns false (no write) if it wasn't
+// there, so the caller can report "no such skill" instead of a silent success.
+export async function removeSkillFromConfig(name: string): Promise<boolean> {
+  const raw = await readRawConfig();
+  const skills = rawSkills(raw);
+  if (!(name in skills)) return false;
+  delete skills[name];
+  raw.skills = skills;
   await writeRawConfig(raw);
   return true;
 }

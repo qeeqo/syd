@@ -64,6 +64,18 @@ const auto: Command = {
   },
 };
 
+const settings: Command = {
+  name: "settings",
+  description: "Toggle settings (shell commands, auto-approve)",
+  run: (_args, ctx) => ctx.showSettings(),
+};
+
+const skills: Command = {
+  name: "skills",
+  description: "Manage skills — saved instructions you invoke with @name",
+  run: (_args, ctx) => ctx.showSkills(),
+};
+
 const mcp: Command = {
   name: "mcp",
   description: "Browse tools from connected MCP servers",
@@ -135,6 +147,8 @@ export const commands: Record<string, Command> = {
   provider: provider,
   copy: copy,
   auto: auto,
+  settings: settings,
+  skills: skills,
   mcp: mcp,
   "mcp-reload": mcpReload,
   "mcp-login": mcpLogin,

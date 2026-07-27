@@ -38,11 +38,13 @@ export default function ApprovalPrompt({
 
   const label = request.note?.label ?? `run ${request.tool}`;
 
-  // File tools carry a diff to review. MCP (and other non-file) tools don't, so
-  // fall back to pretty-printing the call's arguments — the concrete thing the
-  // user is being asked to authorize. Empty/absent args → nothing to show.
+  // Fall back to pretty-printing the call's arguments only when we have no
+  // structured preview at all — i.e. an MCP tool (null note). File tools carry a
+  // diff, and the shell tool puts its command in the label, so in both cases the
+  // note already shows the concrete thing being authorized and the raw JSON args
+  // would just be noise. Empty/absent args → nothing to show.
   const argsText =
-    !request.note?.diffText && request.input != null
+    request.note == null && request.input != null
       ? formatArgs(request.input)
       : null;
 
