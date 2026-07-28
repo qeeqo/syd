@@ -1,11 +1,13 @@
 import { useKeyboard } from "@opentui/react";
 import { commandList } from "../commands/registry";
+import { useTheme } from "./themeContext";
 
 type HelpPopupProps = {
   onDismiss: () => void;
 };
 
 export default function HelpPopup({ onDismiss }: HelpPopupProps) {
+  const t = useTheme();
   // Informational only — any of the obvious "close" keys dismisses it.
   useKeyboard((key) => {
     if (key.name === "escape" || key.name === "return") {
@@ -19,18 +21,18 @@ export default function HelpPopup({ onDismiss }: HelpPopupProps) {
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title=" commands "
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
     >
       {commandList.map((cmd) => (
         <box key={cmd.name} paddingX={1} flexDirection="row">
-          <text fg="#8bb4ff">/{cmd.name.padEnd(nameWidth, " ")}</text>
-          <text fg="#6b7280">
+          <text fg={t.accent}>/{cmd.name.padEnd(nameWidth, " ")}</text>
+          <text fg={t.textMuted}>
             {"  "}
             {cmd.description}
           </text>

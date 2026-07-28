@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import { commandList } from "../commands/registry";
 import CommandSuggestions from "./commandSuggestions";
 import MentionSuggestions from "./mentionSuggestions";
+import { useTheme } from "./themeContext";
 import type { Skill } from "../skills";
 
 type chatInputBoxProps = {
@@ -54,6 +55,7 @@ export default function ChatInputBox({
   focused,
   onSubmit,
 }: chatInputBoxProps) {
+  const t = useTheme();
   const [draft, setDraft] = useState("");
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -164,10 +166,10 @@ export default function ChatInputBox({
       )}
       <box
         border={["top", "bottom"]}
-        borderColor="#191970"
+        borderColor={t.borderActive}
         title={` ${title} `}
         titleAlignment="right"
-        titleColor="#8bb4ff"
+        titleColor={t.accent}
         flexDirection="column"
       >
         <box flexDirection="row">
@@ -183,9 +185,9 @@ export default function ChatInputBox({
         </box>
       </box>
       <box flexDirection="row" justifyContent="flex-end" gap={1}>
-        {shellEnabled && <text fg="#7ee2a8">⋅shell</text>}
-        {autoApprove && <text fg="#c9a24f">⋅auto-approve</text>}
-        <text fg="#8bb4ff">⋅{model}</text>
+        {shellEnabled && <text fg={t.success}>⋅shell</text>}
+        {autoApprove && <text fg={t.warning}>⋅auto-approve</text>}
+        <text fg={t.accent}>⋅{model}</text>
       </box>
     </box>
   );

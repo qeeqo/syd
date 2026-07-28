@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { validateApiKey } from "../auth";
+import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
 
 type ApiKeyPromptProps = {
@@ -12,15 +13,16 @@ type ApiKeyPromptProps = {
   onCancel: () => void;
 };
 
-// Popup background — the input's text renders in this exact color so the
-// pasted key is invisible on screen (OpenTUI has no native masked input).
-const BG = "#141824";
-
 export default function ApiKeyPrompt({
   provider,
   onSubmit,
   onCancel,
 }: ApiKeyPromptProps) {
+  const t = useTheme();
+  // The input's text renders in the popup background color so the pasted key is
+  // invisible on screen (OpenTUI has no native masked input). Sourced from the
+  // active theme so masking holds under any palette.
+  const BG = t.panelBg;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   // True while the key is being verified against the provider's API.
@@ -55,16 +57,16 @@ export default function ApiKeyPrompt({
   return (
     <box
       border
-      borderColor="#2a3350"
+      borderColor={t.border}
       backgroundColor={BG}
       title={` ${provider.label} — API key `}
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={2}
       minWidth={56}
     >
-      <text fg="#9fb2d8">Paste your API key. Input is hidden.</text>
+      <text fg={t.textSecondary}>Paste your API key. Input is hidden.</text>
       {/* The real input: mounted and focused so typing/paste lands here, but
           text + cursor colors match the popup background — nothing shows. */}
       <input
@@ -81,18 +83,18 @@ export default function ApiKeyPrompt({
         onSubmit={handleSubmit}
       />
       {/* Visible feedback: bullets + length, never the key itself. */}
-      <text fg="#8bb4ff">
+      <text fg={t.accent}>
         {draft.length > 0
           ? `${"•".repeat(Math.min(draft.length, 40))}  (${draft.length} chars)`
           : " "}
       </text>
-      {error && <text fg="#b3564f">{error}</text>}
+      {error && <text fg={t.dangerDeep}>{error}</text>}
       {verifying ? (
-        <text fg="#c9a24f" marginTop={1}>
+        <text fg={t.warning} marginTop={1}>
           verifying key with {provider.label}…
         </text>
       ) : (
-        <text fg="#3d4761" marginTop={1}>
+        <text fg={t.textHint} marginTop={1}>
           ↵ verify & save · esc cancel
         </text>
       )}

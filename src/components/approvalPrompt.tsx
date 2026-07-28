@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import type { ApprovalRequest } from "../chat";
+import { useTheme } from "./themeContext";
 
 type ApprovalPromptProps = {
   request: ApprovalRequest;
@@ -17,6 +18,7 @@ export default function ApprovalPrompt({
   onDecide,
   onApproveAll,
 }: ApprovalPromptProps) {
+  const t = useTheme();
   useKeyboard((key) => {
     switch (key.name) {
       case "return":
@@ -51,17 +53,17 @@ export default function ApprovalPrompt({
   return (
     <box
       border
-      borderColor="#5a4a2a"
-      backgroundColor="#141824"
+      borderColor={t.warnBorder}
+      backgroundColor={t.panelBg}
       title=" approve change? "
-      titleColor="#e8c477"
+      titleColor={t.warningBright}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
       width="80%"
       maxWidth={100}
     >
-      <text fg="#dfe8ff" wrapMode="word">
+      <text fg={t.text} wrapMode="word">
         syd wants to {label}
       </text>
       {request.note?.diffText && (
@@ -79,13 +81,13 @@ export default function ApprovalPrompt({
             view="unified"
             wrapMode="none"
             showLineNumbers
-            addedBg="#1e3a26"
-            addedContentBg="#1e3a26"
-            addedSignColor="#8ce8b0"
-            removedBg="#3d2027"
-            removedContentBg="#3d2027"
-            removedSignColor="#ff9aa8"
-            fg="#dfe8ff"
+            addedBg={t.diffAddBg}
+            addedContentBg={t.diffAddBg}
+            addedSignColor={t.successBright}
+            removedBg={t.diffRemoveBg}
+            removedContentBg={t.diffRemoveBg}
+            removedSignColor={t.danger}
+            fg={t.text}
             width="100%"
           />
         </scrollbox>
@@ -98,19 +100,19 @@ export default function ApprovalPrompt({
           verticalScrollbarOptions={{ visible: false }}
           contentOptions={{ flexDirection: "column", width: "100%" }}
         >
-          <text fg="#9aa4b2" wrapMode="word">
+          <text fg={t.textSecondary} wrapMode="word">
             {argsText}
           </text>
         </scrollbox>
       )}
       <box flexDirection="row" gap={2} marginTop={1}>
-        <text fg="#8ce8b0" attributes={TextAttributes.BOLD}>
+        <text fg={t.successBright} attributes={TextAttributes.BOLD}>
           [y / enter] approve
         </text>
-        <text fg="#ff9aa8" attributes={TextAttributes.BOLD}>
+        <text fg={t.danger} attributes={TextAttributes.BOLD}>
           [n / esc] deny
         </text>
-        <text fg="#c9a24f" attributes={TextAttributes.BOLD}>
+        <text fg={t.warning} attributes={TextAttributes.BOLD}>
           [a] approve all
         </text>
       </box>

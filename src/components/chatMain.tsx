@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SyntaxStyle, TextAttributes } from "@opentui/core";
 import type { Message } from "../commands/type";
 import { SYD_TAGLINE } from "../branding.ts";
+import { useTheme } from "./themeContext.tsx";
 
 // The thinking indicator: a seed sprouting into a plant, one frame per tick.
 // Grows to full size then restarts from the seed.
@@ -9,6 +10,7 @@ const SPROUT_FRAMES = [".", ",", ";", "|", "Y", "ψ"];
 const SPROUT_TICK_MS = 260;
 
 function ThinkingSprout() {
+  const t = useTheme();
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     const timer = setInterval(
@@ -17,7 +19,7 @@ function ThinkingSprout() {
     );
     return () => clearInterval(timer);
   }, []);
-  return <text fg="#7ee2a8">{SPROUT_FRAMES[frame]}</text>;
+  return <text fg={t.success}>{SPROUT_FRAMES[frame]}</text>;
 }
 
 type ChatMainProps = { messages: Message[]; streaming: boolean };
@@ -28,6 +30,7 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
   // so it's built exactly once and reused for the app's lifetime — cheaper than
   // one per message and satisfies <markdown>'s required syntaxStyle prop.
   const [syntaxStyle] = useState(() => SyntaxStyle.create());
+  const t = useTheme();
 
   return (
     <box
@@ -35,11 +38,11 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
       padding={1}
       width="100%"
       flexGrow={1}
-      backgroundColor="#000000"
+      backgroundColor={t.transcriptBg}
     >
       <box
         title=" sydcli "
-        titleColor="#8bb4ff"
+        titleColor={t.accent}
         flexDirection="column"
         flexGrow={1}
       >
@@ -83,6 +86,7 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
 // built-in <ascii-font> big-font renderer (Unicode block glyphs + a color
 // gradient) instead of a hand-drawn banner.
 function SydBanner() {
+  const t = useTheme();
   return (
     <box
       flexGrow={1}
@@ -92,8 +96,8 @@ function SydBanner() {
       alignItems="center"
     >
       {/* block font is uppercase-only — lowercase renders blank */}
-      <ascii-font text="SYD" font="block" color={["#8bb4ff", "#191970"]} />
-      <text fg="#5b6472" marginTop={1}>
+      <ascii-font text="SYD" font="block" color={[t.accent, t.accentDeep]} />
+      <text fg={t.textDim} marginTop={1}>
         {SYD_TAGLINE}
       </text>
     </box>
@@ -108,13 +112,14 @@ type MessageBlockProps = {
 };
 
 function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
+  const t = useTheme();
   if (message.role === "system") {
     // Tool activity: "↳ edited src/x.ts" plus a red/green highlighted diff
     // when the tool changed a file.
     if (message.toolNote) {
       return (
         <box flexDirection="column" width="100%">
-          <text fg="#9aa4b2" wrapMode="word">
+          <text fg={t.textSecondary} wrapMode="word">
             ↳ {message.toolNote.label}
           </text>
           {message.toolNote.diffText && (
@@ -123,13 +128,13 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
               view="unified"
               wrapMode="none"
               showLineNumbers
-              addedBg="#1e3a26"
-              addedContentBg="#1e3a26"
-              addedSignColor="#8ce8b0"
-              removedBg="#3d2027"
-              removedContentBg="#3d2027"
-              removedSignColor="#ff9aa8"
-              fg="#dfe8ff"
+              addedBg={t.diffAddBg}
+              addedContentBg={t.diffAddBg}
+              addedSignColor={t.successBright}
+              removedBg={t.diffRemoveBg}
+              removedContentBg={t.diffRemoveBg}
+              removedSignColor={t.danger}
+              fg={t.text}
               width="100%"
               marginLeft={2}
             />
@@ -139,7 +144,7 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
     }
     // Other system notices stay compact — a single dim line, no header.
     return (
-      <text fg="#6b7280" wrapMode="word">
+      <text fg={t.textMuted} wrapMode="word">
         · {message.content}
       </text>
     );
@@ -155,7 +160,7 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
     return (
       <box flexDirection="column" width="100%">
         <box flexDirection="row" gap={1}>
-          <text fg="#8bb4ff" attributes={TextAttributes.BOLD}>
+          <text fg={t.accent} attributes={TextAttributes.BOLD}>
             syd
           </text>
           {streaming && <ThinkingSprout />}
@@ -163,7 +168,7 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
         <markdown
           content={message.content}
           syntaxStyle={syntaxStyle}
-          fg="#dfe8ff"
+          fg={t.text}
           streaming={streaming}
           width="100%"
         />
@@ -176,13 +181,13 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
     <box
       flexDirection="row"
       width="100%"
-      backgroundColor="#12351f"
+      backgroundColor={t.userBg}
       paddingX={1}
     >
-      <text fg="#7ee2a8" attributes={TextAttributes.BOLD}>
+      <text fg={t.success} attributes={TextAttributes.BOLD}>
         {"> "}
       </text>
-      <text fg="#f3f6ff" wrapMode="word">
+      <text fg={t.textStrong} wrapMode="word">
         {message.content}
       </text>
     </box>

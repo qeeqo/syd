@@ -6,6 +6,7 @@ import {
   type Provider,
   type ProviderId,
 } from "../providers";
+import { useTheme } from "./themeContext";
 
 type ProviderPickerProps = {
   current: ProviderId;
@@ -18,6 +19,7 @@ export default function ProviderPicker({
   onSelect,
   onDismiss,
 }: ProviderPickerProps) {
+  const t = useTheme();
   // Start the highlight on the active provider.
   const [selected, setSelected] = useState(() =>
     Math.max(
@@ -57,10 +59,10 @@ export default function ProviderPicker({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title=" switch provider "
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
@@ -76,15 +78,15 @@ export default function ProviderPicker({
             key={p.id}
             paddingX={1}
             flexDirection="row"
-            backgroundColor={isSelected ? "#233056" : undefined}
+            backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>
+            <text fg={isSelected ? t.textSelected : t.accent}>
               {p.id === current ? "● " : "  "}
               {p.label.padEnd(labelWidth, " ")}
             </text>
             {/* Presence only — the key value is never read or shown.
                 Selecting an unready provider opens the paste/sign-in prompt. */}
-            <text fg={ready ? "#5fae7f" : "#c9a24f"}>
+            <text fg={ready ? t.successDim : t.warning}>
               {"  "}
               {ready ? readyLabel : needLabel}
             </text>

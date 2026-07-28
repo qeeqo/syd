@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
+import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
 
 type ChatGPTLoginPromptProps = {
@@ -16,6 +17,7 @@ export default function ChatGPTLoginPrompt({
   onLogin,
   onCancel,
 }: ChatGPTLoginPromptProps) {
+  const t = useTheme();
   const [error, setError] = useState<string | null>(null);
   // True from the moment the browser opens until the flow settles.
   const [waiting, setWaiting] = useState(false);
@@ -50,31 +52,31 @@ export default function ChatGPTLoginPrompt({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title={` ${provider.label} — sign in `}
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={2}
       minWidth={56}
     >
-      <text fg="#9fb2d8" wrapMode="word">
+      <text fg={t.textSecondary} wrapMode="word">
         Sign in with your ChatGPT account to use your plan's Codex quota
         instead of a paid API key.
       </text>
       {waiting ? (
-        <text fg="#c9a24f" marginTop={1} wrapMode="word">
+        <text fg={t.warning} marginTop={1} wrapMode="word">
           opening your browser… complete the sign-in there, then come back.
           Waiting for the redirect…
         </text>
       ) : (
-        <text fg="#3d4761" marginTop={1}>
+        <text fg={t.textHint} marginTop={1}>
           ↵ open browser to sign in · esc cancel
         </text>
       )}
       {error && (
-        <text fg="#b3564f" marginTop={1} wrapMode="word">
+        <text fg={t.dangerDeep} marginTop={1} wrapMode="word">
           {error}
         </text>
       )}

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
+import { useTheme } from "./themeContext";
 
 // One toggleable preference shown in the /settings window. `value` is the live
 // state; App owns it and re-passes a fresh list on every toggle, so this popup
@@ -30,6 +31,7 @@ export default function SettingsPopup({
   onToggle,
   onDismiss,
 }: SettingsPopupProps) {
+  const t = useTheme();
   const [selected, setSelected] = useState(0);
   const total = items.length;
 
@@ -62,10 +64,10 @@ export default function SettingsPopup({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title=" settings "
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
@@ -79,22 +81,22 @@ export default function SettingsPopup({
             key={item.key}
             flexDirection="column"
             paddingX={1}
-            backgroundColor={isSelected ? "#233056" : undefined}
+            backgroundColor={isSelected ? t.selectionBg : undefined}
           >
             <box flexDirection="row">
-              <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>
+              <text fg={isSelected ? t.textSelected : t.accent}>
                 {item.label.padEnd(labelWidth, " ")}
               </text>
-              <text fg="#5b6472">{"   "}</text>
+              <text fg={t.textDim}>{"   "}</text>
               <text
-                fg={item.value ? "#7ee2a8" : "#e08a9a"}
+                fg={item.value ? t.success : t.dangerDim}
                 attributes={TextAttributes.BOLD}
               >
                 {item.value ? "on" : "off"}
               </text>
             </box>
             {isSelected && item.description.length > 0 && (
-              <text fg="#6b7280" wrapMode="word">
+              <text fg={t.textMuted} wrapMode="word">
                 {item.description}
               </text>
             )}
@@ -102,7 +104,7 @@ export default function SettingsPopup({
         );
       })}
 
-      <text fg="#5b6472" marginTop={1}>
+      <text fg={t.textDim} marginTop={1}>
         ↑↓ select · ↵ toggle · esc close
       </text>
     </box>

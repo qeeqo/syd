@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import type { ScrollBoxRenderable } from "@opentui/core";
+import { useTheme } from "./themeContext";
 
 // One tool as shown in the reference window: its (bare, un-namespaced) name and
 // the server-authored description. Both come from the connected MCP server.
@@ -39,6 +40,7 @@ export default function McpToolsPopup({
   servers,
   onDismiss,
 }: McpToolsPopupProps) {
+  const t = useTheme();
   const [mode, setMode] = useState<"list" | "detail">("list");
   // Highlighted row in the list view; also the server opened in detail view.
   const [selected, setSelected] = useState(0);
@@ -110,10 +112,10 @@ export default function McpToolsPopup({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title={mode === "list" ? " mcp servers " : ` ${servers[selected].name} `}
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
@@ -126,7 +128,7 @@ export default function McpToolsPopup({
         <ToolList server={servers[selected]} boxRef={boxRef} />
       )}
 
-      <text fg="#5b6472" marginTop={1}>
+      <text fg={t.textDim} marginTop={1}>
         {mode === "list"
           ? "↑↓ select · ↵ open · esc close"
           : "↑↓ scroll · PgUp/PgDn page · ←/esc back"}
@@ -144,6 +146,7 @@ function ServerList({
   servers: McpServerView[];
   selected: number;
 }) {
+  const t = useTheme();
   const total = servers.length;
   const totalTools = servers.reduce((n, s) => n + s.tools.length, 0);
 
@@ -167,13 +170,13 @@ function ServerList({
 
   return (
     <box flexDirection="column" width="100%">
-      <text fg="#9aa4b2" marginBottom={1}>
+      <text fg={t.textSecondary} marginBottom={1}>
         {totalTools} tool{totalTools === 1 ? "" : "s"} across {total} server
         {total === 1 ? "" : "s"}. Every call still asks for approval unless a
         server is trusted.
       </text>
 
-      {hiddenAbove > 0 && <text fg="#4b5674"> ↑ {hiddenAbove} more</text>}
+      {hiddenAbove > 0 && <text fg={t.textFaint}> ↑ {hiddenAbove} more</text>}
       {visible.map((server, i) => {
         const isSelected = start + i === selected;
         const name =
@@ -188,18 +191,18 @@ function ServerList({
             key={server.name}
             paddingX={1}
             flexDirection="row"
-            backgroundColor={isSelected ? "#233056" : undefined}
+            backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>{name}</text>
-            <text fg={isSelected ? "#9fb2d8" : "#6b7280"}>
+            <text fg={isSelected ? t.textSelected : t.accent}>{name}</text>
+            <text fg={isSelected ? t.textSecondary : t.textMuted}>
               {"  "}
               {server.where} · {server.trust} ·{" "}
             </text>
-            <text fg={server.connected ? "#7ee2a8" : "#e08a9a"}>{status}</text>
+            <text fg={server.connected ? t.success : t.dangerDim}>{status}</text>
           </box>
         );
       })}
-      {hiddenBelow > 0 && <text fg="#4b5674"> ↓ {hiddenBelow} more</text>}
+      {hiddenBelow > 0 && <text fg={t.textFaint}> ↓ {hiddenBelow} more</text>}
     </box>
   );
 }
@@ -213,9 +216,10 @@ function ToolList({
   server: McpServerView;
   boxRef: React.RefObject<ScrollBoxRenderable | null>;
 }) {
+  const t = useTheme();
   return (
     <box flexDirection="column" width="100%">
-      <text fg="#5b6472" wrapMode="word" marginBottom={1}>
+      <text fg={t.textDim} wrapMode="word" marginBottom={1}>
         {server.where} · {server.trust}
         {server.connected
           ? ` · ${server.tools.length} tool${server.tools.length === 1 ? "" : "s"}`
@@ -223,7 +227,7 @@ function ToolList({
       </text>
 
       {server.tools.length === 0 ? (
-        <text fg="#6b7280">
+        <text fg={t.textMuted}>
           {server.connected
             ? "  (no tools exposed)"
             : "  not connected — run /mcp-login or /mcp-reload"}
@@ -238,11 +242,11 @@ function ToolList({
         >
           {server.tools.map((tool) => (
             <box key={tool.name} flexDirection="column" width="100%">
-              <text fg="#9fb2d8" attributes={TextAttributes.BOLD}>
+              <text fg={t.textSecondary} attributes={TextAttributes.BOLD}>
                 {tool.name}
               </text>
               {tool.description.length > 0 && (
-                <text fg="#6b7280" wrapMode="word">
+                <text fg={t.textMuted} wrapMode="word">
                   {"  "}
                   {tool.description}
                 </text>

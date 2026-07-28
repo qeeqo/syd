@@ -1,4 +1,5 @@
 import type { Command } from "../commands/type";
+import { useTheme } from "./themeContext";
 
 type CommandSuggestionsProps = {
   items: Command[];
@@ -13,6 +14,7 @@ export default function CommandSuggestions({
   items,
   selectedIndex,
 }: CommandSuggestionsProps) {
+  const t = useTheme();
   const total = items.length;
 
   // Window start: only scroll once the selection would fall past the last
@@ -29,8 +31,8 @@ export default function CommandSuggestions({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       flexDirection="column"
       alignSelf="flex-start"
       flexShrink={0}
@@ -43,12 +45,12 @@ export default function CommandSuggestions({
             key={cmd.name}
             paddingX={1}
             flexDirection="row"
-            backgroundColor={selected ? "#233056" : undefined}
+            backgroundColor={selected ? t.selectionBg : undefined}
           >
-            <text fg={selected ? "#cfe0ff" : "#8bb4ff"}>
+            <text fg={selected ? t.textSelected : t.accent}>
               /{cmd.name.padEnd(nameWidth, " ")}
             </text>
-            <text fg={selected ? "#9fb2d8" : "#6b7280"}>
+            <text fg={selected ? t.textSecondary : t.textMuted}>
               {"  "}
               {cmd.description}
             </text>
@@ -59,11 +61,11 @@ export default function CommandSuggestions({
           a conditional row would change the popup height mid-scroll and make
           the whole box jump. Blank keeps the height constant. */}
       {total > MAX_VISIBLE && (
-        <text fg="#4b5674">
+        <text fg={t.textFaint}>
           {hiddenBelow > 0 ? ` ↓ ${hiddenBelow} more` : " "}
         </text>
       )}
-      <text fg="#3d4761" marginTop={1}>
+      <text fg={t.textHint} marginTop={1}>
         {" "}
         ↑↓ navigate · ↵ run · tab complete · esc dismiss
       </text>

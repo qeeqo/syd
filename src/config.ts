@@ -21,6 +21,7 @@ import {
   MAX_SKILL_INSTRUCTIONS,
   type Skill,
 } from "./skills.ts";
+import { isThemeName, DEFAULT_THEME_NAME } from "./theme.ts";
 
 const CONFIG_FILE = join(homedir(), ".sydcli", "config.json");
 
@@ -41,6 +42,9 @@ export type Config = {
   // none are defined. Sorted by name so the /skills list and @ palette have a
   // stable order regardless of file/insertion order.
   skills: Skill[];
+  // The active color theme's id (see theme.ts). Always a known id — an unknown
+  // or missing value resolves to the default at load time.
+  theme: string;
 };
 
 // Built-in fallbacks, used when the file is absent, corrupt, or partial.
@@ -57,6 +61,7 @@ export function defaultConfig(): Config {
     shellEnabled: false,
     mcpServers: {},
     skills: [],
+    theme: DEFAULT_THEME_NAME,
   };
 }
 
@@ -372,8 +377,31 @@ export async function loadConfig(): Promise<{
   // skills — same entry-by-entry discipline; a bad skill never poisons the rest.
   const skills = parseSkills(obj.skills, warnings);
 
+  // theme — must be a known theme id; anything else falls back to the default
+  // rather than leaving the UI with no palette.
+  let theme = DEFAULT_THEME_NAME;
+  if (obj.theme !== undefined) {
+    if (typeof obj.theme === "string" && isThemeName(obj.theme)) {
+      theme = obj.theme;
+    } else {
+      warnings.push(
+        `config: unknown theme ${JSON.stringify(
+          obj.theme,
+        )} — using ${DEFAULT_THEME_NAME}`,
+      );
+    }
+  }
+
   return {
-    config: { provider, model, autoApprove, shellEnabled, mcpServers, skills },
+    config: {
+      provider,
+      model,
+      autoApprove,
+      shellEnabled,
+      mcpServers,
+      skills,
+      theme,
+    },
     warnings,
   };
 }
@@ -448,6 +476,17 @@ export async function saveSettings(patch: {
     const raw = await readRawConfig();
     if (patch.autoApprove !== undefined) raw.autoApprove = patch.autoApprove;
     if (patch.shellEnabled !== undefined) raw.shellEnabled = patch.shellEnabled;
+    await writeRawConfig(raw);
+  });
+}
+
+// Persist the active theme id without disturbing any other key — same RAW
+// round-trip discipline as saveSettings. The caller (the /theme picker) passes
+// an id already validated against THEMES.
+export async function saveTheme(name: string): Promise<void> {
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    raw.theme = name;
     await writeRawConfig(raw);
   });
 }

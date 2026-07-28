@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { fetchModels, type FetchModelsResult } from "../models";
+import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
 
 type ModelPickerProps = {
@@ -24,6 +25,7 @@ export default function ModelPicker({
   onSwitchProvider,
   onClose,
 }: ModelPickerProps) {
+  const t = useTheme();
   // undefined while the first fetch is in flight; set once it resolves.
   const [result, setResult] = useState<FetchModelsResult | undefined>();
   const [filter, setFilter] = useState("");
@@ -98,10 +100,10 @@ export default function ModelPicker({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title={` ${provider.label} — models `}
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
@@ -113,10 +115,10 @@ export default function ModelPicker({
         value={filter}
         focused
         placeholder="type to filter…"
-        backgroundColor="#0f1117"
-        focusedBackgroundColor="#0f1117"
-        textColor="#dfe8ff"
-        focusedTextColor="#dfe8ff"
+        backgroundColor={t.appBg}
+        focusedBackgroundColor={t.appBg}
+        textColor={t.text}
+        focusedTextColor={t.text}
         onInput={(value: string) => {
           setFilter(value);
           // Reset the highlight to the top of the freshly filtered list.
@@ -125,11 +127,11 @@ export default function ModelPicker({
       />
 
       {result === undefined ? (
-        <text fg="#c9a24f" marginTop={1}>
+        <text fg={t.warning} marginTop={1}>
           loading models from {provider.label}…
         </text>
       ) : !result.ok ? (
-        <text fg="#b3564f" marginTop={1} wrapMode="word">
+        <text fg={t.dangerDeep} marginTop={1} wrapMode="word">
           {result.reason === "no-key"
             ? `no API key for ${provider.label} yet — switch to it via /provider first`
             : result.reason === "empty"
@@ -137,7 +139,7 @@ export default function ModelPicker({
               : `couldn't reach ${provider.label} — type a model id above and press ↵`}
         </text>
       ) : matches.length === 0 ? (
-        <text fg="#6b7280" marginTop={1}>
+        <text fg={t.textMuted} marginTop={1}>
           no models match "{filter}"
         </text>
       ) : (
@@ -149,9 +151,9 @@ export default function ModelPicker({
                 key={m}
                 paddingX={1}
                 flexDirection="row"
-                backgroundColor={isSelected ? "#233056" : undefined}
+                backgroundColor={isSelected ? t.selectionBg : undefined}
               >
-                <text fg={isSelected ? "#cfe0ff" : "#9fb2d8"}>
+                <text fg={isSelected ? t.textSelected : t.textSecondary}>
                   {m === current ? "● " : "  "}
                   {m}
                 </text>
@@ -163,7 +165,7 @@ export default function ModelPicker({
 
       {/* Footer hints — esc is repurposed to hop to the provider picker so
           the user can change provider without leaving the /model flow. */}
-      <text fg="#5b6472" marginTop={1}>
+      <text fg={t.textDim} marginTop={1}>
         ↵ select ⋅ esc switch provider ⋅ q quit
       </text>
     </box>

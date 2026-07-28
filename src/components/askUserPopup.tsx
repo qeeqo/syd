@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { AskUserRequest } from "../tools";
+import { useTheme } from "./themeContext";
 
 type AskUserPopupProps = {
   request: AskUserRequest;
@@ -22,6 +23,7 @@ export default function AskUserPopup({
   onAnswer,
   onDismiss,
 }: AskUserPopupProps) {
+  const t = useTheme();
   const { question, options, allowInput } = request;
   // The custom-answer row (when allowed) sits just past the last option.
   const customIndex = allowInput ? options.length : -1;
@@ -66,17 +68,17 @@ export default function AskUserPopup({
   return (
     <box
       border
-      borderColor="#2a4a5a"
-      backgroundColor="#141824"
+      borderColor={t.infoBorder}
+      backgroundColor={t.panelBg}
       title=" syd asks "
-      titleColor="#77c7e8"
+      titleColor={t.info}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
       width="80%"
       maxWidth={100}
     >
-      <text fg="#dfe8ff" wrapMode="word">
+      <text fg={t.text} wrapMode="word">
         {question}
       </text>
 
@@ -88,9 +90,9 @@ export default function AskUserPopup({
               key={`${i}-${option}`}
               paddingX={1}
               flexDirection="row"
-              backgroundColor={isSelected ? "#233056" : undefined}
+              backgroundColor={isSelected ? t.selectionBg : undefined}
             >
-              <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>
+              <text fg={isSelected ? t.textSelected : t.accent}>
                 {isSelected ? "› " : "  "}
                 {option}
               </text>
@@ -102,16 +104,16 @@ export default function AskUserPopup({
           <box
             paddingX={1}
             flexDirection="column"
-            backgroundColor={onCustomRow ? "#233056" : undefined}
+            backgroundColor={onCustomRow ? t.selectionBg : undefined}
           >
-            <text fg={onCustomRow ? "#cfe0ff" : "#8bb4ff"}>
+            <text fg={onCustomRow ? t.textSelected : t.accent}>
               {onCustomRow ? "› " : "  "}
               type your own answer
             </text>
             {/* Focused only while its row is selected, so option navigation
                 and free-text entry never fight over the keyboard. */}
             <box flexDirection="row" paddingLeft={2}>
-              <text fg="#5b6472">❯ </text>
+              <text fg={t.textDim}>❯ </text>
               <input
                 value={draft}
                 placeholder="…"
@@ -125,7 +127,7 @@ export default function AskUserPopup({
         )}
       </box>
 
-      <text fg="#5b6472" marginTop={1}>
+      <text fg={t.textDim} marginTop={1}>
         {onCustomRow
           ? "type an answer · ↵ send · ↑↓ back to options · esc dismiss"
           : "↑↓ select · ↵ choose · esc dismiss"}

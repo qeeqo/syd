@@ -7,6 +7,7 @@ import {
   MAX_SKILL_INSTRUCTIONS,
   type Skill,
 } from "../skills";
+import { useTheme } from "./themeContext";
 
 type SkillsPopupProps = {
   skills: Skill[];
@@ -31,6 +32,7 @@ export default function SkillsPopup({
   onDelete,
   onDismiss,
 }: SkillsPopupProps) {
+  const t = useTheme();
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [selected, setSelected] = useState(0);
   // The two-step delete guard: first `d` arms it for this name, second `d`
@@ -179,8 +181,8 @@ export default function SkillsPopup({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title={
         mode === "list"
           ? " skills "
@@ -188,7 +190,7 @@ export default function SkillsPopup({
             ? ` edit @${editingName} `
             : " new skill "
       }
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
@@ -214,7 +216,7 @@ export default function SkillsPopup({
         />
       )}
 
-      <text fg="#5b6472" marginTop={1}>
+      <text fg={t.textDim} marginTop={1}>
         {mode === "list"
           ? confirmDelete
             ? `press d again to delete @${confirmDelete} · esc cancel`
@@ -236,14 +238,15 @@ function SkillList({
   selected: number;
   confirmDelete: string | null;
 }) {
+  const t = useTheme();
   if (skills.length === 0) {
     return (
       <box flexDirection="column" width="100%">
-        <text fg="#9aa4b2" wrapMode="word">
+        <text fg={t.textSecondary} wrapMode="word">
           No skills yet. A skill is a set of saved instructions you invoke by
           writing @name in a message.
         </text>
-        <text fg="#6b7280" marginTop={1}>
+        <text fg={t.textMuted} marginTop={1}>
           Press n to create one — or just ask syd to make one.
         </text>
       </box>
@@ -269,12 +272,12 @@ function SkillList({
 
   return (
     <box flexDirection="column" width="100%">
-      <text fg="#9aa4b2" marginBottom={1}>
+      <text fg={t.textSecondary} marginBottom={1}>
         {total} skill{total === 1 ? "" : "s"} · invoke one by writing @name in a
         message.
       </text>
 
-      {hiddenAbove > 0 && <text fg="#4b5674"> ↑ {hiddenAbove} more</text>}
+      {hiddenAbove > 0 && <text fg={t.textFaint}> ↑ {hiddenAbove} more</text>}
       {visible.map((skill, i) => {
         const isSelected = start + i === selected;
         const armed = confirmDelete === skill.name;
@@ -291,17 +294,17 @@ function SkillList({
             paddingX={1}
             flexDirection="row"
             backgroundColor={
-              armed ? "#4a2530" : isSelected ? "#233056" : undefined
+              armed ? t.armedBg : isSelected ? t.selectionBg : undefined
             }
           >
             <text
-              fg={armed ? "#ff9aa8" : isSelected ? "#cfe0ff" : "#8bb4ff"}
+              fg={armed ? t.danger : isSelected ? t.textSelected : t.accent}
               attributes={TextAttributes.BOLD}
             >
               @{name}
             </text>
             {hint.length > 0 && (
-              <text fg={isSelected ? "#9fb2d8" : "#6b7280"}>
+              <text fg={isSelected ? t.textSecondary : t.textMuted}>
                 {"  "}
                 {hint}
               </text>
@@ -309,7 +312,7 @@ function SkillList({
           </box>
         );
       })}
-      {hiddenBelow > 0 && <text fg="#4b5674"> ↓ {hiddenBelow} more</text>}
+      {hiddenBelow > 0 && <text fg={t.textFaint}> ↓ {hiddenBelow} more</text>}
     </box>
   );
 }
@@ -337,13 +340,16 @@ function SkillEditor({
   onTitleInput: (value: string) => void;
   onTitleSubmit: () => void;
 }) {
+  const t = useTheme();
   const nameFocused = focusedField === "name";
   return (
     <box flexDirection="column" width="100%">
-      <text fg={nameFocused ? "#cfe0ff" : "#8bb4ff"}>Name (used as @name)</text>
+      <text fg={nameFocused ? t.textSelected : t.accent}>
+        Name (used as @name)
+      </text>
       <box
         border
-        borderColor={nameFocused ? "#191970" : "#2a3350"}
+        borderColor={nameFocused ? t.borderActive : t.border}
         marginBottom={1}
       >
         <input
@@ -357,12 +363,12 @@ function SkillEditor({
         />
       </box>
 
-      <text fg={!nameFocused ? "#cfe0ff" : "#8bb4ff"}>
+      <text fg={!nameFocused ? t.textSelected : t.accent}>
         Instructions (what syd should do when you @mention this)
       </text>
       <box
         border
-        borderColor={!nameFocused ? "#191970" : "#2a3350"}
+        borderColor={!nameFocused ? t.borderActive : t.border}
         height={10}
       >
         <textarea
@@ -377,7 +383,7 @@ function SkillEditor({
       </box>
 
       {error && (
-        <text fg="#ff9aa8" marginTop={1} wrapMode="word">
+        <text fg={t.danger} marginTop={1} wrapMode="word">
           {error}
         </text>
       )}

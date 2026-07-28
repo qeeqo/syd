@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { Session } from "../session";
+import { useTheme } from "./themeContext";
 
 type SessionPickerProps = {
   sessions: Session[];
@@ -27,6 +28,7 @@ export default function SessionPicker({
   onSelect,
   onDismiss,
 }: SessionPickerProps) {
+  const t = useTheme();
   const [selected, setSelected] = useState(0);
   const total = sessions.length;
 
@@ -76,15 +78,15 @@ export default function SessionPicker({
   return (
     <box
       border
-      borderColor="#2a3350"
-      backgroundColor="#141824"
+      borderColor={t.border}
+      backgroundColor={t.panelBg}
       title=" resume session "
-      titleColor="#8bb4ff"
+      titleColor={t.accent}
       flexDirection="column"
       flexShrink={0}
       paddingX={1}
     >
-      {hiddenAbove > 0 && <text fg="#4b5674"> ↑ {hiddenAbove} more</text>}
+      {hiddenAbove > 0 && <text fg={t.textFaint}> ↑ {hiddenAbove} more</text>}
       {visible.map((session, i) => {
         const isSelected = start + i === selected;
         const title =
@@ -96,22 +98,22 @@ export default function SessionPicker({
             key={session.id}
             paddingX={1}
             flexDirection="row"
-            backgroundColor={isSelected ? "#233056" : undefined}
+            backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            <text fg={isSelected ? "#9fb2d8" : "#4b5674"}>
+            <text fg={isSelected ? t.textSecondary : t.textFaint}>
               {session.id.slice(0, 8)}
               {"  "}
             </text>
-            <text fg={isSelected ? "#cfe0ff" : "#8bb4ff"}>{title}</text>
-            <text fg={isSelected ? "#9fb2d8" : "#6b7280"}>
+            <text fg={isSelected ? t.textSelected : t.accent}>{title}</text>
+            <text fg={isSelected ? t.textSecondary : t.textMuted}>
               {"  "}
               {formatAge(session.updatedAt)}
             </text>
           </box>
         );
       })}
-      {hiddenBelow > 0 && <text fg="#4b5674"> ↓ {hiddenBelow} more</text>}
-      {/* <text fg="#3d4761" marginTop={1}> */}
+      {hiddenBelow > 0 && <text fg={t.textFaint}> ↓ {hiddenBelow} more</text>}
+      {/* <text fg={t.textHint} marginTop={1}> */}
       {/*   {" "} */}
       {/*   ↑↓ navigate · ↵ resume · esc dismiss */}
       {/* </text> */}

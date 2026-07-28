@@ -76,6 +76,12 @@ const skills: Command = {
   run: (_args, ctx) => ctx.showSkills(),
 };
 
+const theme: Command = {
+  name: "theme",
+  description: "Pick a color theme (previews live, applies on ↵)",
+  run: (_args, ctx) => ctx.showTheme(),
+};
+
 const mcp: Command = {
   name: "mcp",
   description: "Browse tools from connected MCP servers",
@@ -149,6 +155,7 @@ export const commands: Record<string, Command> = {
   auto: auto,
   settings: settings,
   skills: skills,
+  theme: theme,
   mcp: mcp,
   "mcp-reload": mcpReload,
   "mcp-login": mcpLogin,

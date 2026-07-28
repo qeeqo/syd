@@ -39,8 +39,12 @@ import {
   saveSettings,
   saveSkill,
   removeSkillFromConfig,
+  saveTheme,
   type Config,
 } from "./config";
+import { resolveTheme } from "./theme";
+import { ThemeProvider } from "./components/themeContext";
+import ThemePicker from "./components/themePicker";
 import {
   findMentionedSkills,
   type Skill,
@@ -93,6 +97,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Active color theme id (see theme.ts). Drives the whole UI's palette via the
+  // ThemeProvider below. `themePickerOpen` shows the picker; `themeBeforePreview`
+  // remembers what to revert to if the picker is dismissed after live-previewing.
+  const [themeName, setThemeName] = useState(config.theme);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const themeBeforePreview = useRef(config.theme);
   const [approval, setApproval] = useState<{
     request: ApprovalRequest;
     resolve: (approved: boolean) => void;
@@ -151,6 +161,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     settingsOpen ||
     skillsOpen ||
     modelPickerOpen ||
+    themePickerOpen ||
     approval !== null ||
     askUserReq !== null;
 
@@ -454,6 +465,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     showHelp: () => setHelpOpen(true),
     showSettings: () => setSettingsOpen(true),
     showSkills: () => setSkillsOpen(true),
+    showTheme: () => {
+      // Remember the current theme so dismissing the picker (which live-previews
+      // as you scroll) reverts cleanly to where we started.
+      themeBeforePreview.current = themeName;
+      setThemePickerOpen(true);
+    },
     showMcpTools: () => {
       if (Object.keys(mcpServers).length === 0) {
         ctx.addSystemMessage(
@@ -1005,12 +1022,17 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
+  // Resolve the active theme once per render; the provider hands its tokens to
+  // every component via useTheme(), so changing themeName recolors the whole UI.
+  const theme = resolveTheme(themeName);
+
   return (
+    <ThemeProvider tokens={theme.tokens}>
     <box
       flexDirection="column"
       width="100%"
       height="100%"
-      backgroundColor="#0f1117"
+      backgroundColor={theme.tokens.appBg}
     >
       <ChatMain messages={messages} streaming={isStreaming} />
       <ChatInputBox
@@ -1225,6 +1247,38 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           />
         </box>
       )}
+      {themePickerOpen && (
+        <box
+          position="absolute"
+          left={0}
+          top={0}
+          width="100%"
+          height="100%"
+          justifyContent="center"
+          alignItems="center"
+        >
+          <ThemePicker
+            current={themeBeforePreview.current}
+            // Live preview only — repaint the UI without touching disk.
+            onHighlight={(name) => setThemeName(name)}
+            onSelect={(name) => {
+              setThemePickerOpen(false);
+              setThemeName(name);
+              // Only persist on an explicit choice; a previewed-but-dismissed
+              // theme never reaches config.json.
+              void saveTheme(name).catch((err) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                ctx.addSystemMessage(`failed to save theme: ${msg}`);
+              });
+            }}
+            onDismiss={() => {
+              // Undo any live preview back to where we opened.
+              setThemeName(themeBeforePreview.current);
+              setThemePickerOpen(false);
+            }}
+          />
+        </box>
+      )}
       {approval && (
         <box
           position="absolute"
@@ -1248,5 +1302,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         </box>
       )}
     </box>
+    </ThemeProvider>
   );
 }
