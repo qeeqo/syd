@@ -166,7 +166,7 @@ export default function ChatInputBox({
       )}
       <box
         border={["top", "bottom"]}
-        borderColor={t.borderActive}
+        borderColor={t.inputBorder}
         title={` ${title} `}
         titleAlignment="right"
         titleColor={t.accent}

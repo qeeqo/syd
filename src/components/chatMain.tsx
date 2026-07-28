@@ -22,6 +22,72 @@ function ThinkingSprout() {
   return <text fg={t.success}>{SPROUT_FRAMES[frame]}</text>;
 }
 
+// --- glow color helpers -----------------------------------------------------
+// Linearly interpolate between two "#rrggbb" colors so the loader can pulse a
+// smooth ramp of the accent hue (theme tokens are discrete, so we synthesize the
+// in-between stops here). Malformed input falls back to white rather than throw
+// — this paints every frame, so it must never crash the transcript.
+function hexToRgb(hex: string): [number, number, number] {
+  const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
+  if (!m) return [255, 255, 255];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function mixColor(a: string, b: string, ratio: number): string {
+  const t = Math.max(0, Math.min(1, ratio));
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const c = (x: number, y: number) =>
+    Math.round(x + (y - x) * t)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
+}
+
+// The "glowing" loader shown at the base of the transcript, just above the chat
+// input, for the whole in-flight turn (silent tool-loop phase + token
+// streaming). A bright highlight sweeps back and forth across a row of dots, and
+// each dot's color is mixed from dim→accent by its distance to the sweep head,
+// giving the soft glow. One interval drives both the sweep and the label pulse.
+const GLOW_DOTS = 5;
+const GLOW_TICK_MS = 110;
+
+function GlowLoader() {
+  const t = useTheme();
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => setTick((n) => n + 1), GLOW_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Bounce the highlight head 0 → GLOW_DOTS-1 → 0 across the row.
+  const period = (GLOW_DOTS - 1) * 2;
+  const phase = tick % period;
+  const head = phase < GLOW_DOTS ? phase : period - phase;
+
+  // The label breathes on a slower triangle wave so it pulses with the sweep
+  // without strobing character-by-character.
+  const lp = tick % 20;
+  const labelGlow = lp < 10 ? lp / 10 : (20 - lp) / 10;
+
+  return (
+    <box flexDirection="row" gap={1} paddingX={2} marginTop={1}>
+      <box flexDirection="row">
+        {Array.from({ length: GLOW_DOTS }, (_, i) => {
+          const glow = Math.max(0, 1 - Math.abs(i - head) / 2);
+          return (
+            <text key={i} fg={mixColor(t.textFaint, t.accent, glow)}>
+              ●
+            </text>
+          );
+        })}
+      </box>
+      <text fg={mixColor(t.textDim, t.accent, labelGlow)}>thinking…</text>
+    </box>
+  );
+}
+
 type ChatMainProps = { messages: Message[]; streaming: boolean };
 
 export default function ChatMain({ messages, streaming }: ChatMainProps) {
@@ -77,6 +143,10 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
           </scrollbox>
         )}
       </box>
+      {/* Glowing loader pinned to the base of the transcript (a sibling of the
+          flexGrow'd box above), so it sits right on top of the chat input while
+          a turn is in flight. */}
+      {streaming && <GlowLoader />}
     </box>
   );
 }

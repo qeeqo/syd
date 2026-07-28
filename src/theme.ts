@@ -38,8 +38,11 @@ export type ThemeTokens = {
   // --- borders ---
   // Default panel / input border.
   border: string;
-  // Active / focused border (focused input, focused editor field, logo accent).
+  // Active / focused border (focused editor field, logo accent).
   borderActive: string;
+  // The chat input's own border (kept separate from borderActive so the primary
+  // prompt can read distinctly from focused editor fields).
+  inputBorder: string;
   // Border for a caution panel (the approve-change prompt).
   warnBorder: string;
   // Border for an interaction panel (the "syd asks" prompt).
@@ -122,6 +125,7 @@ const syd: Theme = {
     userBg: "#12351f",
     border: "#2a3350",
     borderActive: "#191970",
+    inputBorder: "#ffffff",
     warnBorder: "#5a4a2a",
     infoBorder: "#2a4a5a",
     diffAddBg: "#1e3a26",
@@ -164,6 +168,7 @@ const solarizedOsaka: Theme = {
     userBg: "#053d2c",
     border: "#164952",
     borderActive: "#268bd2", // blue
+    inputBorder: "#268bd2", // blue
     warnBorder: "#5a4a12",
     infoBorder: "#164e5a",
     diffAddBg: "#0a3320",
@@ -205,6 +210,7 @@ const gruvbox: Theme = {
     userBg: "#283618",
     border: "#3c3836", // bg1
     borderActive: "#83a598", // bright blue
+    inputBorder: "#83a598", // bright blue
     warnBorder: "#4d3b17",
     infoBorder: "#26403f",
     diffAddBg: "#32361f",
@@ -246,6 +252,7 @@ const catppuccin: Theme = {
     userBg: "#1e3328",
     border: "#313244", // surface0
     borderActive: "#89b4fa", // blue
+    inputBorder: "#89b4fa", // blue
     warnBorder: "#4a3f2a",
     infoBorder: "#2a3f4a",
     diffAddBg: "#26332b",
