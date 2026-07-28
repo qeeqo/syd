@@ -343,7 +343,7 @@ function SkillEditor({
       <text fg={nameFocused ? "#cfe0ff" : "#8bb4ff"}>Name (used as @name)</text>
       <box
         border
-        borderColor={nameFocused ? "#4f8cff" : "#2a3350"}
+        borderColor={nameFocused ? "#191970" : "#2a3350"}
         marginBottom={1}
       >
         <input
@@ -362,7 +362,7 @@ function SkillEditor({
       </text>
       <box
         border
-        borderColor={!nameFocused ? "#4f8cff" : "#2a3350"}
+        borderColor={!nameFocused ? "#191970" : "#2a3350"}
         height={10}
       >
         <textarea

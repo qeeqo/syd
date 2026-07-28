@@ -403,6 +403,29 @@ async function writeRawConfig(obj: Record<string, unknown>): Promise<void> {
   await Bun.write(CONFIG_FILE, JSON.stringify(obj, null, 2) + "\n");
 }
 
+// Serialize every read-modify-write of config.json. Each writer below runs its
+// whole read → mutate → write body inside this queue, so overlapping calls (the
+// model creating several skills in one turn, or a popup toggle landing mid-turn)
+// can't clobber each other. Bun is single-threaded, but the read (await) … write
+// (await) window still interleaves at await points — two writers reading the
+// same snapshot and both writing their +1 back is a classic lost update. An
+// async mutex built as a promise chain closes that window without a library.
+let configWriteQueue: Promise<unknown> = Promise.resolve();
+
+function withConfigLock<T>(critical: () => Promise<T>): Promise<T> {
+  // Chain onto the tail so only one critical section runs at a time; `.then`
+  // with both handlers runs `critical` whether the prior holder settled ok or
+  // threw, so one failed write never wedges the queue. The stored tail is
+  // swallowed to a non-rejecting promise so the next caller doesn't inherit a
+  // rejection, while `run` still rejects for the actual caller that failed.
+  const run = configWriteQueue.then(critical, critical);
+  configWriteQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
 // Pull the raw mcpServers object out of a raw config, or {} if it's missing or
 // the wrong shape (a corrupt block shouldn't crash an add/remove).
 function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
@@ -421,10 +444,12 @@ export async function saveSettings(patch: {
   autoApprove?: boolean;
   shellEnabled?: boolean;
 }): Promise<void> {
-  const raw = await readRawConfig();
-  if (patch.autoApprove !== undefined) raw.autoApprove = patch.autoApprove;
-  if (patch.shellEnabled !== undefined) raw.shellEnabled = patch.shellEnabled;
-  await writeRawConfig(raw);
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    if (patch.autoApprove !== undefined) raw.autoApprove = patch.autoApprove;
+    if (patch.shellEnabled !== undefined) raw.shellEnabled = patch.shellEnabled;
+    await writeRawConfig(raw);
+  });
 }
 
 // Add or replace one MCP server in config.json, preserving every other key.
@@ -432,23 +457,27 @@ export async function saveMcpServer(
   name: string,
   server: McpServerConfig,
 ): Promise<void> {
-  const raw = await readRawConfig();
-  const servers = rawMcpServers(raw);
-  servers[name] = server;
-  raw.mcpServers = servers;
-  await writeRawConfig(raw);
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    const servers = rawMcpServers(raw);
+    servers[name] = server;
+    raw.mcpServers = servers;
+    await writeRawConfig(raw);
+  });
 }
 
 // Remove one MCP server from config.json. Returns false (no write) if it wasn't
 // there, so the caller can tell the user rather than silently succeeding.
 export async function removeMcpServerFromConfig(name: string): Promise<boolean> {
-  const raw = await readRawConfig();
-  const servers = rawMcpServers(raw);
-  if (!(name in servers)) return false;
-  delete servers[name];
-  raw.mcpServers = servers;
-  await writeRawConfig(raw);
-  return true;
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    const servers = rawMcpServers(raw);
+    if (!(name in servers)) return false;
+    delete servers[name];
+    raw.mcpServers = servers;
+    await writeRawConfig(raw);
+    return true;
+  });
 }
 
 // Pull the raw skills object out of a raw config, or {} if missing / wrong
@@ -466,21 +495,25 @@ function rawSkills(raw: Record<string, unknown>): Record<string, unknown> {
 // is assumed already normalized (the callers — the editor and the model tool —
 // normalize before persisting).
 export async function saveSkill(skill: Skill): Promise<void> {
-  const raw = await readRawConfig();
-  const skills = rawSkills(raw);
-  skills[skill.name] = { instructions: skill.instructions };
-  raw.skills = skills;
-  await writeRawConfig(raw);
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    const skills = rawSkills(raw);
+    skills[skill.name] = { instructions: skill.instructions };
+    raw.skills = skills;
+    await writeRawConfig(raw);
+  });
 }
 
 // Remove one skill from config.json. Returns false (no write) if it wasn't
 // there, so the caller can report "no such skill" instead of a silent success.
 export async function removeSkillFromConfig(name: string): Promise<boolean> {
-  const raw = await readRawConfig();
-  const skills = rawSkills(raw);
-  if (!(name in skills)) return false;
-  delete skills[name];
-  raw.skills = skills;
-  await writeRawConfig(raw);
-  return true;
+  return withConfigLock(async () => {
+    const raw = await readRawConfig();
+    const skills = rawSkills(raw);
+    if (!(name in skills)) return false;
+    delete skills[name];
+    raw.skills = skills;
+    await writeRawConfig(raw);
+    return true;
+  });
 }

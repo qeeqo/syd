@@ -164,7 +164,7 @@ export default function ChatInputBox({
       )}
       <box
         border={["top", "bottom"]}
-        borderColor="#4f8cff"
+        borderColor="#191970"
         title={` ${title} `}
         titleAlignment="right"
         titleColor="#8bb4ff"

@@ -30,7 +30,13 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
   const [syntaxStyle] = useState(() => SyntaxStyle.create());
 
   return (
-    <box flexDirection="column" padding={1} width="100%" flexGrow={1}>
+    <box
+      flexDirection="column"
+      padding={1}
+      width="100%"
+      flexGrow={1}
+      backgroundColor="#000000"
+    >
       <box
         title=" sydcli "
         titleColor="#8bb4ff"
@@ -86,7 +92,7 @@ function SydBanner() {
       alignItems="center"
     >
       {/* block font is uppercase-only — lowercase renders blank */}
-      <ascii-font text="SYD" font="block" color={["#8bb4ff", "#4f8cff"]} />
+      <ascii-font text="SYD" font="block" color={["#8bb4ff", "#191970"]} />
       <text fg="#5b6472" marginTop={1}>
         {SYD_TAGLINE}
       </text>

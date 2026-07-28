@@ -323,7 +323,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // wasn't defined, so the model tool can report "no such skill".
   async function removeSkill(name: string): Promise<boolean> {
     const removed = await removeSkillFromConfig(name);
-    if (removed) {
+    // Purge from live state whenever the name is present in it, even if disk
+    // reported "not there" (removed === false). Delete is idempotent: the goal
+    // is "skill gone", and if state and disk ever drift (a clobbered write, a
+    // hand-edited config.json) this lets the UI self-heal instead of showing a
+    // row that can never be removed. `removed` still reflects the disk result so
+    // the model tool can honestly say "no such skill".
+    if (skillsRef.current.some((s) => s.name === name)) {
       const next = skillsRef.current.filter((s) => s.name !== name);
       skillsRef.current = next;
       setSkills(next);
