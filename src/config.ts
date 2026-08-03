@@ -262,7 +262,9 @@ function parseSkills(value: unknown, warnings: string[]): Skill[] {
     }
     const trimmed = instructions.trim();
     if (trimmed.length === 0) {
-      warnings.push(`config: skill "${rawName}" has empty instructions — skipping`);
+      warnings.push(
+        `config: skill "${rawName}" has empty instructions — skipping`,
+      );
       continue;
     }
     if (seen.has(name)) {
@@ -340,13 +342,18 @@ export async function loadConfig(): Promise<{
   // model — any non-empty string. When absent, fall back to the chosen
   // provider's own default so a "provider only" config lands on a valid model
   // rather than a mismatched one.
-  const providerHadModel = obj.provider !== undefined && provider !== DEFAULT_PROVIDER;
-  let model = providerHadModel ? providers[provider].defaultModel : DEFAULT_MODEL;
+  const providerHadModel =
+    obj.provider !== undefined && provider !== DEFAULT_PROVIDER;
+  let model = providerHadModel
+    ? providers[provider].defaultModel
+    : DEFAULT_MODEL;
   if (obj.model !== undefined) {
     if (typeof obj.model === "string" && obj.model.trim().length > 0) {
       model = obj.model.trim();
     } else {
-      warnings.push(`config: model must be a non-empty string — using ${model}`);
+      warnings.push(
+        `config: model must be a non-empty string — using ${model}`,
+      );
     }
   }
 
@@ -507,7 +514,9 @@ export async function saveMcpServer(
 
 // Remove one MCP server from config.json. Returns false (no write) if it wasn't
 // there, so the caller can tell the user rather than silently succeeding.
-export async function removeMcpServerFromConfig(name: string): Promise<boolean> {
+export async function removeMcpServerFromConfig(
+  name: string,
+): Promise<boolean> {
   return withConfigLock(async () => {
     const raw = await readRawConfig();
     const servers = rawMcpServers(raw);

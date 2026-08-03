@@ -1,27 +1,3 @@
-// Color themes — a pure data module (no React, no TUI), so a future headless
-// core / neovim plugin can share the same palette definitions the way it shares
-// session.ts / config.ts. The React glue (context + hook) lives separately in
-// components/themeContext.tsx; this file only owns the semantic token contract
-// and the concrete palettes.
-//
-// Every color the UI draws is named by ROLE here (accent, danger, textMuted …),
-// never by hue, so a component asks for `t.accent` and each theme decides what
-// that is. Adding a theme is just one more entry in THEMES with all tokens
-// filled — the type makes a missing token a compile error, so a theme can never
-// half-cover the UI.
-//
-// Bundled non-default palettes are derived from well-known open-source themes,
-// all under the permissive MIT license (see THIRD_PARTY_LICENSES.md for the
-// copyright + permission notices):
-//   • Solarized — Copyright (c) 2011 Ethan Schoonover
-//   • Gruvbox   — Copyright (c) 2017 Pavel Pertsev
-//   • Catppuccin — Copyright (c) 2021 Catppuccin
-// The accent/base hexes come from those projects; the incidental surface tints
-// (diff backgrounds, armed/user-message rows) are derived to match each family.
-
-// The complete set of semantic color roles the UI paints with. Every theme must
-// provide all of them — the type is the single source of truth for "what a theme
-// needs to define", so a new component color should be added here first.
 export type ThemeTokens = {
   // --- surfaces ---
   // App root background (the whole screen).
@@ -109,10 +85,7 @@ export type Theme = {
   tokens: ThemeTokens;
 };
 
-// --- syd (default) ----------------------------------------------------------
-// The original hand-picked palette — cool near-black blues with a soft blue
-// accent. Kept byte-for-byte identical to the pre-theming hardcoded colors so
-// the default look is unchanged.
+// --- syd (default)
 const syd: Theme = {
   name: "syd",
   label: "syd",
@@ -153,13 +126,11 @@ const syd: Theme = {
   },
 };
 
-// --- Solarized Osaka (dark) --------------------------------------------------
-// Ethan Schoonover's Solarized accent ramp on the deeper teal-black base the
-// "Osaka" variant favors. Famously low-contrast by design.
+// --- Solarized Osaka (dark)
 const solarizedOsaka: Theme = {
   name: "solarized-osaka",
   label: "Solarized Osaka",
-  blurb: "Ethan Schoonover · low-contrast teal dark (MIT)",
+  blurb: "low-contrast teal dark",
   tokens: {
     appBg: "#002b36", // base03
     transcriptBg: "#00212b", // deeper base for the transcript
@@ -196,12 +167,11 @@ const solarizedOsaka: Theme = {
   },
 };
 
-// --- Gruvbox (dark, medium) --------------------------------------------------
-// Pavel Pertsev's retro-warm palette: earthy browns with bright pastel accents.
+// --- Gruvbox
 const gruvbox: Theme = {
   name: "gruvbox",
   label: "Gruvbox",
-  blurb: "Pavel Pertsev · retro warm dark (MIT)",
+  blurb: "retro warm dark",
   tokens: {
     appBg: "#282828", // bg0
     transcriptBg: "#1d2021", // bg0_h (hard)
@@ -238,12 +208,11 @@ const gruvbox: Theme = {
   },
 };
 
-// --- Catppuccin Mocha --------------------------------------------------------
-// The Catppuccin community's soft, pastel dark flavor.
+// --- Catppuccin Mocha
 const catppuccin: Theme = {
   name: "catppuccin",
   label: "Catppuccin Mocha",
-  blurb: "Catppuccin · soft pastel dark (MIT)",
+  blurb: "soft pastel dark",
   tokens: {
     appBg: "#1e1e2e", // base
     transcriptBg: "#11111b", // crust (deepest)
@@ -280,8 +249,6 @@ const catppuccin: Theme = {
   },
 };
 
-// Registry of every bundled theme, keyed by its stable id. Insertion order is
-// the order the /theme picker shows them (default first).
 export const THEMES: Record<string, Theme> = {
   syd,
   "solarized-osaka": solarizedOsaka,
@@ -289,10 +256,8 @@ export const THEMES: Record<string, Theme> = {
   catppuccin,
 };
 
-// The theme applied when config names none / an unknown one.
 export const DEFAULT_THEME_NAME = "syd";
 
-// The picker list, in registry order.
 export const themeList: Theme[] = Object.values(THEMES);
 
 // True when `name` is a known theme id — used by config parsing to validate the

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { SyntaxStyle, TextAttributes } from "@opentui/core";
 import type { Message } from "../commands/type";
 import { SYD_TAGLINE } from "../branding.ts";
@@ -45,11 +45,6 @@ function mixColor(a: string, b: string, ratio: number): string {
   return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
 }
 
-// The "glowing" loader shown at the base of the transcript, just above the chat
-// input, for the whole in-flight turn (silent tool-loop phase + token
-// streaming). A bright highlight sweeps back and forth across a row of dots, and
-// each dot's color is mixed from dim→accent by its distance to the sweep head,
-// giving the soft glow. One interval drives both the sweep and the label pulse.
 const GLOW_DOTS = 5;
 const GLOW_TICK_MS = 110;
 
@@ -68,8 +63,6 @@ function GlowLoader() {
 
   // The label breathes on a slower triangle wave so it pulses with the sweep
   // without strobing character-by-character.
-  const lp = tick % 20;
-  const labelGlow = lp < 10 ? lp / 10 : (20 - lp) / 10;
 
   return (
     <box flexDirection="row" gap={1} paddingX={2} marginTop={1}>
@@ -78,12 +71,11 @@ function GlowLoader() {
           const glow = Math.max(0, 1 - Math.abs(i - head) / 2);
           return (
             <text key={i} fg={mixColor(t.textFaint, t.accent, glow)}>
-              ●
+              _
             </text>
           );
         })}
       </box>
-      <text fg={mixColor(t.textDim, t.accent, labelGlow)}>thinking…</text>
     </box>
   );
 }
@@ -181,7 +173,20 @@ type MessageBlockProps = {
   streaming: boolean;
 };
 
-function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
+// Memoized so a streaming flush only re-renders the one bubble whose props
+// actually changed. Every 33ms flush hands ChatMain a new `messages` array, but
+// App's functional setMessages (slice + spread-the-last) preserves each
+// unchanged message's *object reference*, so React.memo's default shallow
+// compare (message ref, stable syntaxStyle, streaming=false for all but the
+// last) skips every finished bubble. Only the live tail — new message ref plus
+// streaming=true — re-renders. Without this, the whole transcript re-renders and
+// the <scrollbox> re-measures on every token, which is what made the in-flight
+// text jump and garble. This is the OpenTUI equivalent of Ink's <Static>.
+const MessageBlock = memo(function MessageBlock({
+  message,
+  syntaxStyle,
+  streaming,
+}: MessageBlockProps) {
   const t = useTheme();
   if (message.role === "system") {
     // Tool activity: "↳ edited src/x.ts" plus a red/green highlighted diff
@@ -220,12 +225,6 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
     );
   }
 
-  // Assistant output is markdown from the model — parse & style it so headings,
-  // lists, bold, and code blocks render visually instead of showing raw
-  // `**`/`#`/backtick syntax. `streaming` keeps the trailing block flexible
-  // while tokens arrive, then flips false so trailing-token parsing finalizes.
-  // While the turn is in flight the header grows a sprout — the "thinking"
-  // indicator, covering both the silent tool-loop phase and token streaming.
   if (message.role === "assistant") {
     return (
       <box flexDirection="column" width="100%">
@@ -262,4 +261,4 @@ function MessageBlock({ message, syntaxStyle, streaming }: MessageBlockProps) {
       </text>
     </box>
   );
-}
+});
