@@ -49,6 +49,11 @@ export type ThemeTokens = {
   textFaint: string;
   // Faintest text (the dimmest keycap hint lines).
   textHint: string;
+  // Ink for text drawn on top of a bright/inverted fill (the session chip under
+  // the input). Distinct from `appBg` — which it used to borrow — because a
+  // transparent theme has no paintable app background, and zero-alpha text is
+  // not drawn at all.
+  inverseText: string;
 
   // --- accents ---
   // Primary accent (titles, command/skill names, the model indicator).
@@ -85,47 +90,6 @@ export type Theme = {
   tokens: ThemeTokens;
 };
 
-// --- syd (default)
-const syd: Theme = {
-  name: "syd",
-  label: "syd",
-  blurb: "the original — cool near-black blues",
-  tokens: {
-    appBg: "#0f1117",
-    transcriptBg: "#000000",
-    panelBg: "#141824",
-    selectionBg: "#233056",
-    userBg: "#12351f",
-    border: "#2a3350",
-    borderActive: "#191970",
-    inputBorder: "#ffffff",
-    warnBorder: "#5a4a2a",
-    infoBorder: "#2a4a5a",
-    diffAddBg: "#1e3a26",
-    diffRemoveBg: "#3d2027",
-    armedBg: "#4a2530",
-    textStrong: "#f3f6ff",
-    text: "#dfe8ff",
-    textSelected: "#cfe0ff",
-    textSecondary: "#9fb2d8",
-    textMuted: "#6b7280",
-    textDim: "#5b6472",
-    textFaint: "#4b5674",
-    textHint: "#3d4761",
-    accent: "#8bb4ff",
-    accentDeep: "#191970",
-    success: "#7ee2a8",
-    successBright: "#8ce8b0",
-    successDim: "#5fae7f",
-    warning: "#c9a24f",
-    warningBright: "#e8c477",
-    danger: "#ff9aa8",
-    dangerDim: "#e08a9a",
-    dangerDeep: "#b3564f",
-    info: "#77c7e8",
-  },
-};
-
 // --- Solarized Osaka (dark)
 const solarizedOsaka: Theme = {
   name: "solarized-osaka",
@@ -153,6 +117,7 @@ const solarizedOsaka: Theme = {
     textDim: "#586e75", // base01
     textFaint: "#495e66",
     textHint: "#3b5058",
+    inverseText: "#002b36",
     accent: "#268bd2", // blue
     accentDeep: "#1a5a8a",
     success: "#859900", // green
@@ -194,6 +159,7 @@ const gruvbox: Theme = {
     textDim: "#928374", // gray
     textFaint: "#7c6f64", // bg4
     textHint: "#665c54", // bg3
+    inverseText: "#282828",
     accent: "#83a598", // bright blue
     accentDeep: "#458588", // neutral blue
     success: "#b8bb26", // bright green
@@ -235,6 +201,7 @@ const catppuccin: Theme = {
     textDim: "#9399b2", // overlay2
     textFaint: "#7f849c", // overlay1
     textHint: "#6c7086", // overlay0
+    inverseText: "#1e1e2e", // base
     accent: "#89b4fa", // blue
     accentDeep: "#5a7ac9",
     success: "#a6e3a1", // green
@@ -249,14 +216,94 @@ const catppuccin: Theme = {
   },
 };
 
+// --- System (transparent)
+//
+// Paints no surfaces: every background token is "transparent", which OpenTUI
+// parses to RGBA(0,0,0,0). With nothing opaque beneath — the renderer's own
+// default backgroundColor is "transparent" too — those cells emit no background
+// escape, so the terminal's own background shows through, including window
+// transparency and blur. That is the whole point of this theme: it is the only
+// one that composites with the terminal instead of covering it.
+//
+// The foregrounds stay explicit hex. OpenTUI can address the terminal's 16-color
+// palette (RGBA.fromIndex) which would track a user's terminal theme exactly,
+// but ThemeTokens is typed `string` and code like chatMain's mixColor() parses
+// these as hex — so indexed colors would need a wider ColorInput refactor. These
+// values are picked to read against a dark translucent terminal, which is what
+// blur setups almost always are.
+const system: Theme = {
+  name: "system",
+  label: "System",
+  blurb: "transparent — shows your terminal through",
+  tokens: {
+    // --- surfaces: the chat area is transparent, which is where blur pays off
+    appBg: "transparent",
+    transcriptBg: "transparent",
+    userBg: "transparent",
+    // Popups and highlighted rows are the deliberate exceptions. A popup draws
+    // *over* the transcript; with no fill, the text beneath shows through its
+    // text and both become unreadable. A selected row with no fill has no
+    // highlight at all — the affordance disappears. Both stay opaque so the
+    // theme is transparent where it helps and solid where it must be.
+    panelBg: "#16181d",
+    selectionBg: "#2c3340",
+    // Diff and armed rows keep a tint — these *must* read as a colored band to
+    // do their job, and a transparent diff is an unreadable diff. They are the
+    // deliberate exception to the no-surfaces rule.
+    diffAddBg: "#1e3a26",
+    diffRemoveBg: "#3d2027",
+    armedBg: "#4a2530",
+    // --- borders carry the structure the backgrounds no longer do
+    border: "#5b6472",
+    borderActive: "#8bb4ff",
+    inputBorder: "#8bb4ff",
+    warnBorder: "#b58a4a",
+    infoBorder: "#4a9ab5",
+    // --- text
+    textStrong: "#ffffff",
+    text: "#d4d4d4",
+    textSelected: "#ffffff",
+    textSecondary: "#b0b0b0",
+    textMuted: "#909090",
+    textDim: "#7a7a7a",
+    textFaint: "#6a6a6a",
+    textHint: "#5a5a5a",
+    inverseText: "#101216",
+    // --- accents: standard-ish ANSI hues, so they sit naturally next to
+    // whatever palette the terminal itself is using
+    accent: "#8bb4ff",
+    accentDeep: "#5577bb",
+    success: "#7ec87e",
+    successBright: "#a5e0a5",
+    successDim: "#5a9a5a",
+    warning: "#e0c060",
+    warningBright: "#f0d890",
+    danger: "#e57373",
+    dangerDim: "#c86060",
+    dangerDeep: "#b04c4c",
+    info: "#6cc5dd",
+  },
+};
+
 export const THEMES: Record<string, Theme> = {
-  syd,
+  system,
   "solarized-osaka": solarizedOsaka,
   gruvbox,
   catppuccin,
 };
 
-export const DEFAULT_THEME_NAME = "syd";
+export const DEFAULT_THEME_NAME = "catppuccin";
+
+// Theme ids that shipped once and have since been removed. A config.json out in
+// the world can still name one, so they resolve to the default *silently* —
+// without them, config parsing would warn "unknown theme" on every launch for
+// anyone who had the retired theme selected. Distinct from a genuine typo,
+// which should still warn.
+const RETIRED_THEME_NAMES = new Set(["syd"]);
+
+export function isRetiredThemeName(name: string): boolean {
+  return RETIRED_THEME_NAMES.has(name);
+}
 
 export const themeList: Theme[] = Object.values(THEMES);
 

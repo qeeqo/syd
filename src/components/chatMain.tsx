@@ -79,9 +79,18 @@ function GlowLoader() {
   );
 }
 
-type ChatMainProps = { messages: Message[]; streaming: boolean };
+type ChatMainProps = {
+  messages: Message[];
+  streaming: boolean;
+  // Active model id, shown in the empty-session masthead. Owned by App.
+  model: string;
+};
 
-export default function ChatMain({ messages, streaming }: ChatMainProps) {
+export default function ChatMain({
+  messages,
+  streaming,
+  model,
+}: ChatMainProps) {
   // One shared syntax theme for all rendered markdown. Created lazily on first
   // render (after the renderer's native lib is up) via a useState initializer
   // so it's built exactly once and reused for the app's lifetime — cheaper than
@@ -104,8 +113,8 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
         flexGrow={1}
       >
         {messages.length === 0 ? (
-          // Empty session: center the wordmark on both axes in the whole area.
-          <SydBanner />
+          // Empty session: the masthead, pinned to the top-left of the area.
+          <SydBanner model={model} />
         ) : (
           /*
             A scrollbox clips its content to the viewport and scrolls instead of
@@ -142,22 +151,46 @@ export default function ChatMain({ messages, streaming }: ChatMainProps) {
   );
 }
 
-// New-session greeting: the syd wordmark shown while the chat is empty.
-// Fills the whole chat area and centers the mark on both axes. Uses OpenTUI's
-// built-in <ascii-font> big-font renderer (Unicode block glyphs + a color
-// gradient) instead of a hand-drawn banner.
-function SydBanner() {
+// Collapse the home prefix to "~" so the masthead shows a path that fits and
+// reads the way the user would say it. Falls back to the raw cwd if HOME is
+// unset (a bare cron/CI shell), never to an empty string.
+function shortCwd(): string {
+  const cwd = process.cwd();
+  const home = process.env.HOME;
+  if (home && (cwd === home || cwd.startsWith(`${home}/`))) {
+    return `~${cwd.slice(home.length)}`;
+  }
+  return cwd;
+}
+
+// New-session masthead: the syd wordmark with a three-line colophon beside it,
+// shown while the chat is empty (a fresh session, or opening syd in a
+// directory). Pinned to the top-left of the chat area. The inner row lays the
+// wordmark and the colophon side by side; alignItems="center" centres the three
+// short lines against the wordmark's six, so neither block looks dropped.
+function SydBanner({ model }: { model: string }) {
   const t = useTheme();
   return (
     <box
       flexGrow={1}
-      width="100%"
       flexDirection="column"
-      justifyContent="center"
-      alignItems="center"
+      justifyContent="flex-start"
+      alignItems="flex-start"
+      paddingLeft={2}
+      paddingTop={1}
     >
-      {/* block font is uppercase-only — lowercase renders blank */}
-      <ascii-font text="SYD" font="block" color={[t.accent, t.accentDeep]} />
+      <box flexDirection="row" alignItems="center" gap={3}>
+        {/* Every OpenTUI ascii font is uppercase-only — lowercase renders blank.
+            "pallet" draws double-line glyphs in colour 1 over a "─" fill that
+            covers the whole bounding box in colour 2, so the two-stop gradient
+            reads as letters-on-a-ground rather than a shaded letter edge. */}
+        <ascii-font text="SYD" font="pallet" color={[t.accent, t.accentDeep]} />
+        <box flexDirection="column">
+          <text fg={t.textDim}>{shortCwd()}</text>
+          <text fg={t.textDim}>{model}</text>
+          <text fg={t.textFaint}>/help</text>
+        </box>
+      </box>
     </box>
   );
 }

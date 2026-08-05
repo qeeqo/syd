@@ -21,7 +21,11 @@ import {
   MAX_SKILL_INSTRUCTIONS,
   type Skill,
 } from "./skills.ts";
-import { isThemeName, DEFAULT_THEME_NAME } from "./theme.ts";
+import {
+  isThemeName,
+  isRetiredThemeName,
+  DEFAULT_THEME_NAME,
+} from "./theme.ts";
 
 const CONFIG_FILE = join(homedir(), ".sydcli", "config.json");
 
@@ -390,6 +394,15 @@ export async function loadConfig(): Promise<{
   if (obj.theme !== undefined) {
     if (typeof obj.theme === "string" && isThemeName(obj.theme)) {
       theme = obj.theme;
+    } else if (
+      typeof obj.theme === "string" &&
+      isRetiredThemeName(obj.theme)
+    ) {
+      // A theme that shipped once and was removed. The stored preference is
+      // legitimate history, not a typo, so it migrates to the default quietly —
+      // warning here would nag on every launch about a choice the user can no
+      // longer make. The key is rewritten the next time they pick a theme.
+      theme = DEFAULT_THEME_NAME;
     } else {
       warnings.push(
         `config: unknown theme ${JSON.stringify(

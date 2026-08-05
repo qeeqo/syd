@@ -1024,7 +1024,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         height="100%"
         backgroundColor={theme.tokens.appBg}
       >
-        <ChatMain messages={messages} streaming={isStreaming} />
+        <ChatMain messages={messages} streaming={isStreaming} model={model} />
         <ChatInputBox
           title={sessionTitle}
           autoApprove={autoApprove}

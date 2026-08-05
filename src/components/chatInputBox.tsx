@@ -185,7 +185,6 @@ export default function ChatInputBox({
         <box flexDirection="row">
           <input
             value={draft}
-            placeholder="Ask syd anything..."
             focused={focused}
             paddingLeft={1}
             flexGrow={1}
@@ -204,7 +203,7 @@ export default function ChatInputBox({
             indicators to its left. Theme tokens rather than a literal white so
             it stays readable on every theme. */}
         <box backgroundColor={t.textStrong} paddingX={1} flexShrink={0}>
-          <text fg={t.appBg}>{chipTitle}</text>
+          <text fg={t.inverseText}>{chipTitle}</text>
         </box>
       </box>
     </box>
