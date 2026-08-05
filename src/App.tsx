@@ -9,9 +9,7 @@ import ApiKeyPrompt from "./components/apiKeyPrompt";
 import ChatGPTLoginPrompt from "./components/chatGPTLoginPrompt";
 import ApprovalPrompt from "./components/approvalPrompt";
 import ModelPicker from "./components/modelPicker";
-import McpToolsPopup, {
-  type McpServerView,
-} from "./components/mcpToolsPopup";
+import McpToolsPopup, { type McpServerView } from "./components/mcpToolsPopup";
 import SettingsPopup, { type SettingItem } from "./components/settingsPopup";
 import SkillsPopup from "./components/skillsPopup";
 import AskUserPopup from "./components/askUserPopup";
@@ -45,10 +43,7 @@ import {
 import { resolveTheme } from "./theme";
 import { ThemeProvider } from "./components/themeContext";
 import ThemePicker from "./components/themePicker";
-import {
-  findMentionedSkills,
-  type Skill,
-} from "./skills";
+import { findMentionedSkills, type Skill } from "./skills";
 import type { AskUserRequest } from "./tools";
 import {
   connectMcpServers,
@@ -438,11 +433,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     setAutoApprove: (auto) => {
       autoApproveRef.current = auto;
       setAutoApproveState(auto);
-      ctx.addSystemMessage(
-        auto
-          ? "auto-approve ON — file edits apply without asking (/auto off to stop)"
-          : "auto-approve OFF — file edits ask first",
-      );
     },
     toggleAutoApprove: () => ctx.setAutoApprove(!autoApproveRef.current),
     setProvider: (id) => {
@@ -549,7 +539,9 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-        ctx.addSystemMessage("url must be http(s) — /mcp-add is for HTTP servers");
+        ctx.addSystemMessage(
+          "url must be http(s) — /mcp-add is for HTTP servers",
+        );
         return;
       }
       if (name in mcpServers) {
@@ -570,7 +562,9 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         );
         const next = await reconnectMcp();
         if (oauth) {
-          ctx.addSystemMessage(`"${name}" uses OAuth — run /mcp-login ${name} to sign in`);
+          ctx.addSystemMessage(
+            `"${name}" uses OAuth — run /mcp-login ${name} to sign in`,
+          );
         } else {
           const count = Object.keys(next.tools).filter((t) =>
             t.startsWith(`${name}__`),
@@ -765,19 +759,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
   }
 
-  // Single place a loaded session becomes the live one — shared by the
-  // picker popup and the /resume <id> direct path.
   function applySession(session: Session) {
     setSessionTitle(session.title);
-    // Raw setters — resume shouldn't echo "model set to" / "provider set to".
     setProvider(session.provider);
     setModel(session.model);
     setMessages(session.messages);
-    // Adopt the loaded session's identity so future saves update its file.
     metaRef.current = session;
-    ctx.addSystemMessage(
-      `resumed "${session.title}" (${session.messages.length} messages)`,
-    );
   }
 
   // Commit any buffered stream text to the open assistant bubble and cancel a
@@ -796,7 +783,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (last && last.role === "assistant") {
-        return [...prev.slice(0, -1), { ...last, content: last.content + chunk }];
+        return [
+          ...prev.slice(0, -1),
+          { ...last, content: last.content + chunk },
+        ];
       }
       return [...prev, { role: "assistant", content: chunk }];
     });
@@ -1028,280 +1018,280 @@ export default function App({ config, configWarnings = [] }: AppProps) {
 
   return (
     <ThemeProvider tokens={theme.tokens}>
-    <box
-      flexDirection="column"
-      width="100%"
-      height="100%"
-      backgroundColor={theme.tokens.appBg}
-    >
-      <ChatMain messages={messages} streaming={isStreaming} />
-      <ChatInputBox
-        title={sessionTitle}
-        model={model}
-        autoApprove={autoApprove}
-        shellEnabled={shellEnabled}
-        skills={skills}
-        // Unfocus while a popup is open so keystrokes can't leak into the
-        // draft; the popup owns the keyboard instead.
-        focused={!overlayOpen}
-        onSubmit={handleSubmit}
-      />
-      {/* Centered overlay: absolute so it floats above the chat without
+      <box
+        flexDirection="column"
+        width="100%"
+        height="100%"
+        backgroundColor={theme.tokens.appBg}
+      >
+        <ChatMain messages={messages} streaming={isStreaming} />
+        <ChatInputBox
+          title={sessionTitle}
+          model={model}
+          autoApprove={autoApprove}
+          shellEnabled={shellEnabled}
+          skills={skills}
+          // Unfocus while a popup is open so keystrokes can't leak into the
+          // draft; the popup owns the keyboard instead.
+          focused={!overlayOpen}
+          onSubmit={handleSubmit}
+        />
+        {/* Centered overlay: absolute so it floats above the chat without
           reflowing it, full-screen box centering the popup on both axes. */}
-      {pickerSessions && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <SessionPicker
-            sessions={pickerSessions}
-            onSelect={(session) => {
-              setPickerSessions(null);
-              applySession(session);
-            }}
-            onDismiss={() => setPickerSessions(null)}
-          />
-        </box>
-      )}
-      {providerPickerOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <ProviderPicker
-            current={provider}
-            onSelect={(next) => {
-              setProviderPickerOpen(false);
-              // Selecting a provider flows on into the model picker.
-              openModelAfterProvider.current = true;
-              applyProvider(next);
-            }}
-            onDismiss={() => {
-              // Backing out goes to chat, not on to the model picker.
-              openModelAfterProvider.current = false;
-              setProviderPickerOpen(false);
-            }}
-          />
-        </box>
-      )}
-      {helpOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <HelpPopup onDismiss={() => setHelpOpen(false)} />
-        </box>
-      )}
-      {mcpToolsOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <McpToolsPopup
-            servers={buildMcpViews()}
-            onDismiss={() => setMcpToolsOpen(false)}
-          />
-        </box>
-      )}
-      {settingsOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <SettingsPopup
-            items={settingItems}
-            onToggle={toggleSetting}
-            onDismiss={() => setSettingsOpen(false)}
-          />
-        </box>
-      )}
-      {skillsOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <SkillsPopup
-            skills={skills}
-            onSave={(skill, previousName) => {
-              void persistSkill(skill, previousName).catch((err) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                ctx.addSystemMessage(`failed to save skill: ${msg}`);
-              });
-            }}
-            onDelete={(name) => {
-              void removeSkill(name).catch((err) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                ctx.addSystemMessage(`failed to delete skill: ${msg}`);
-              });
-            }}
-            onDismiss={() => setSkillsOpen(false)}
-          />
-        </box>
-      )}
-      {askUserReq && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <AskUserPopup
-            request={askUserReq}
-            onAnswer={settleUserAnswer}
-            onDismiss={() =>
-              settleUserAnswer(
-                "(the user dismissed the question without answering)",
-              )
-            }
-          />
-        </box>
-      )}
-      {keyPrompt && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          {keyPrompt.auth === "oauth" ? (
-            <ChatGPTLoginPrompt
-              provider={keyPrompt}
-              onLogin={() => handleOAuthLogin(keyPrompt)}
-              onCancel={() => {
+        {pickerSessions && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <SessionPicker
+              sessions={pickerSessions}
+              onSelect={(session) => {
+                setPickerSessions(null);
+                applySession(session);
+              }}
+              onDismiss={() => setPickerSessions(null)}
+            />
+          </box>
+        )}
+        {providerPickerOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <ProviderPicker
+              current={provider}
+              onSelect={(next) => {
+                setProviderPickerOpen(false);
+                // Selecting a provider flows on into the model picker.
+                openModelAfterProvider.current = true;
+                applyProvider(next);
+              }}
+              onDismiss={() => {
+                // Backing out goes to chat, not on to the model picker.
                 openModelAfterProvider.current = false;
-                setKeyPrompt(null);
+                setProviderPickerOpen(false);
               }}
             />
-          ) : (
-            <ApiKeyPrompt
-              provider={keyPrompt}
-              onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
-              onCancel={() => {
-                // Abandoning the paste also abandons the pending model-picker
-                // handoff — else it fires on the next provider switch.
-                openModelAfterProvider.current = false;
-                setKeyPrompt(null);
+          </box>
+        )}
+        {helpOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <HelpPopup onDismiss={() => setHelpOpen(false)} />
+          </box>
+        )}
+        {mcpToolsOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <McpToolsPopup
+              servers={buildMcpViews()}
+              onDismiss={() => setMcpToolsOpen(false)}
+            />
+          </box>
+        )}
+        {settingsOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <SettingsPopup
+              items={settingItems}
+              onToggle={toggleSetting}
+              onDismiss={() => setSettingsOpen(false)}
+            />
+          </box>
+        )}
+        {skillsOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <SkillsPopup
+              skills={skills}
+              onSave={(skill, previousName) => {
+                void persistSkill(skill, previousName).catch((err) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  ctx.addSystemMessage(`failed to save skill: ${msg}`);
+                });
+              }}
+              onDelete={(name) => {
+                void removeSkill(name).catch((err) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  ctx.addSystemMessage(`failed to delete skill: ${msg}`);
+                });
+              }}
+              onDismiss={() => setSkillsOpen(false)}
+            />
+          </box>
+        )}
+        {askUserReq && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <AskUserPopup
+              request={askUserReq}
+              onAnswer={settleUserAnswer}
+              onDismiss={() =>
+                settleUserAnswer(
+                  "(the user dismissed the question without answering)",
+                )
+              }
+            />
+          </box>
+        )}
+        {keyPrompt && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            {keyPrompt.auth === "oauth" ? (
+              <ChatGPTLoginPrompt
+                provider={keyPrompt}
+                onLogin={() => handleOAuthLogin(keyPrompt)}
+                onCancel={() => {
+                  openModelAfterProvider.current = false;
+                  setKeyPrompt(null);
+                }}
+              />
+            ) : (
+              <ApiKeyPrompt
+                provider={keyPrompt}
+                onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
+                onCancel={() => {
+                  // Abandoning the paste also abandons the pending model-picker
+                  // handoff — else it fires on the next provider switch.
+                  openModelAfterProvider.current = false;
+                  setKeyPrompt(null);
+                }}
+              />
+            )}
+          </box>
+        )}
+        {modelPickerOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <ModelPicker
+              provider={providers[provider]}
+              current={model}
+              onSelect={(next) => {
+                setModelPickerOpen(false);
+                ctx.setModel(next);
+              }}
+              onSwitchProvider={() => {
+                setModelPickerOpen(false);
+                setProviderPickerOpen(true);
+              }}
+              onClose={() => setModelPickerOpen(false)}
+            />
+          </box>
+        )}
+        {themePickerOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <ThemePicker
+              current={themeBeforePreview.current}
+              // Live preview only — repaint the UI without touching disk.
+              onHighlight={(name) => setThemeName(name)}
+              onSelect={(name) => {
+                setThemePickerOpen(false);
+                setThemeName(name);
+                // Only persist on an explicit choice; a previewed-but-dismissed
+                // theme never reaches config.json.
+                void saveTheme(name).catch((err) => {
+                  const msg = err instanceof Error ? err.message : String(err);
+                  ctx.addSystemMessage(`failed to save theme: ${msg}`);
+                });
+              }}
+              onDismiss={() => {
+                // Undo any live preview back to where we opened.
+                setThemeName(themeBeforePreview.current);
+                setThemePickerOpen(false);
               }}
             />
-          )}
-        </box>
-      )}
-      {modelPickerOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <ModelPicker
-            provider={providers[provider]}
-            current={model}
-            onSelect={(next) => {
-              setModelPickerOpen(false);
-              ctx.setModel(next);
-            }}
-            onSwitchProvider={() => {
-              setModelPickerOpen(false);
-              setProviderPickerOpen(true);
-            }}
-            onClose={() => setModelPickerOpen(false)}
-          />
-        </box>
-      )}
-      {themePickerOpen && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <ThemePicker
-            current={themeBeforePreview.current}
-            // Live preview only — repaint the UI without touching disk.
-            onHighlight={(name) => setThemeName(name)}
-            onSelect={(name) => {
-              setThemePickerOpen(false);
-              setThemeName(name);
-              // Only persist on an explicit choice; a previewed-but-dismissed
-              // theme never reaches config.json.
-              void saveTheme(name).catch((err) => {
-                const msg = err instanceof Error ? err.message : String(err);
-                ctx.addSystemMessage(`failed to save theme: ${msg}`);
-              });
-            }}
-            onDismiss={() => {
-              // Undo any live preview back to where we opened.
-              setThemeName(themeBeforePreview.current);
-              setThemePickerOpen(false);
-            }}
-          />
-        </box>
-      )}
-      {approval && (
-        <box
-          position="absolute"
-          left={0}
-          top={0}
-          width="100%"
-          height="100%"
-          justifyContent="center"
-          alignItems="center"
-        >
-          <ApprovalPrompt
-            request={approval.request}
-            onDecide={handleApprovalDecision}
-            // "approve all": flip to auto for the rest of the session and
-            // approve this one, so a multi-file change stops interrupting.
-            onApproveAll={() => {
-              ctx.setAutoApprove(true);
-              handleApprovalDecision(true);
-            }}
-          />
-        </box>
-      )}
-    </box>
+          </box>
+        )}
+        {approval && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <ApprovalPrompt
+              request={approval.request}
+              onDecide={handleApprovalDecision}
+              // "approve all": flip to auto for the rest of the session and
+              // approve this one, so a multi-file change stops interrupting.
+              onApproveAll={() => {
+                ctx.setAutoApprove(true);
+                handleApprovalDecision(true);
+              }}
+            />
+          </box>
+        )}
+      </box>
     </ThemeProvider>
   );
 }

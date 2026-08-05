@@ -217,10 +217,7 @@ export async function streamChat({
     // emitting them, without executing the tools they refer to.
     const pending: { approvalId: string; tool: string; input: unknown }[] = [];
 
-    // fullStream instead of textStream: same text deltas, plus the tool-loop
-    // events between them. Unknown part types fall through — new SDK part
-    // kinds must not break streaming.
-    for await (const part of result.fullStream) {
+    for await (const part of result.stream) {
       switch (part.type) {
         case "text-delta":
           onDelta(part.text);
@@ -267,9 +264,6 @@ export async function streamChat({
       }
     }
 
-    // The fullStream can also end by throwing an AbortError out of the
-    // for-await (rather than emitting an abort part) — the outer try/catch in
-    // App handles that; here we just make sure a post-loop cancel stops us.
     if (abortSignal?.aborted) return;
 
     // No pending approvals → the model finished its turn normally.
