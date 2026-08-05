@@ -1,7 +1,6 @@
 import { memo, useEffect, useState } from "react";
 import { SyntaxStyle, TextAttributes } from "@opentui/core";
 import type { Message } from "../commands/type";
-import { SYD_TAGLINE } from "../branding.ts";
 import { useTheme } from "./themeContext.tsx";
 
 // The thinking indicator: a seed sprouting into a plant, one frame per tick.
@@ -159,9 +158,6 @@ function SydBanner() {
     >
       {/* block font is uppercase-only — lowercase renders blank */}
       <ascii-font text="SYD" font="block" color={[t.accent, t.accentDeep]} />
-      <text fg={t.textDim} marginTop={1}>
-        {SYD_TAGLINE}
-      </text>
     </box>
   );
 }

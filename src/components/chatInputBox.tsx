@@ -7,10 +7,11 @@ import { useTheme } from "./themeContext";
 import type { Skill } from "../skills";
 
 type chatInputBoxProps = {
+  // The session name. Rendered as the inverted chip below the input — the only
+  // place it appears, so it reads as the one piece of session identity.
   title: string;
-  model: string;
-  // Auto-approve mode is on — shown next to the model so the current safety
-  // posture is always visible, not hidden state.
+  // Auto-approve mode is on — shown beside the session chip so the current
+  // safety posture is always visible, not hidden state.
   autoApprove: boolean;
   // Shell access is enabled — shown alongside auto-approve so the fact that syd
   // can run commands is never hidden state.
@@ -46,9 +47,20 @@ function mentionQuery(draft: string): { at: number; query: string } | null {
   return { at, query: rest };
 }
 
+// The session chip is sized by its text, and /rename accepts a title of any
+// length, so a long one would push the indicator row past the terminal width.
+// Clamp what's drawn (never the stored title) to keep the row stable.
+const MAX_CHIP_CHARS = 32;
+
+function clampTitle(title: string): string {
+  const clean = title.trim() || "New Chat";
+  return clean.length > MAX_CHIP_CHARS
+    ? `${clean.slice(0, MAX_CHIP_CHARS - 1)}…`
+    : clean;
+}
+
 export default function ChatInputBox({
   title,
-  model,
   autoApprove,
   shellEnabled,
   skills,
@@ -56,6 +68,7 @@ export default function ChatInputBox({
   onSubmit,
 }: chatInputBoxProps) {
   const t = useTheme();
+  const chipTitle = clampTitle(title);
   const [draft, setDraft] = useState("");
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -167,9 +180,6 @@ export default function ChatInputBox({
       <box
         border={["top", "bottom"]}
         borderColor={t.inputBorder}
-        title={` ${title} `}
-        titleAlignment="right"
-        titleColor={t.accent}
         flexDirection="column"
       >
         <box flexDirection="row">
@@ -187,7 +197,15 @@ export default function ChatInputBox({
       <box flexDirection="row" justifyContent="flex-end" gap={1}>
         {shellEnabled && <text fg={t.success}>⋅shell</text>}
         {autoApprove && <text fg={t.warning}>⋅auto-approve</text>}
-        <text fg={t.accent}>⋅{model}</text>
+        {/* Inverted chip: the brightest text colour becomes the fill, the app
+            background the ink. No width is set, so flexbox sizes the box to its
+            content and the block hugs the title exactly; paddingX supplies the
+            one-cell gutter. flexShrink={0} keeps it from being squeezed by the
+            indicators to its left. Theme tokens rather than a literal white so
+            it stays readable on every theme. */}
+        <box backgroundColor={t.textStrong} paddingX={1} flexShrink={0}>
+          <text fg={t.appBg}>{chipTitle}</text>
+        </box>
       </box>
     </box>
   );
