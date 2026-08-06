@@ -1,6 +1,3 @@
-// The single choke point for the model call — tools, MCP, prompts, and
-// reasoning options are all assembled here.
-
 import {
   streamText,
   isStepCount,
@@ -53,7 +50,6 @@ const SHELL_PROMPT =
   `commands. Every command needs the user's approval before it runs; when ` +
   `one is denied, do not rerun it — ask the user instead.`;
 
-// An invoked skill's own instructions are appended separately, after this.
 const SKILLS_PROMPT =
   ` The user can define reusable "skills" — saved instructions they invoke by ` +
   `writing @<name> in a message. When the user asks you to create, change, or ` +
@@ -66,8 +62,7 @@ const ASK_USER_PROMPT =
   `call askUser to pop up a question and wait for their answer instead of ` +
   `guessing. Don't overuse it — only when a real decision is theirs to make.`;
 
-// `note` is the preview of what would change; null means the call fails
-// validation without touching disk, so there's nothing to review.
+// null means validation failed before any disk change, so nothing needs review.
 export type ApprovalRequest = {
   tool: string;
   input: unknown;
@@ -83,26 +78,23 @@ export type StreamChatArgs = {
   // Absent → all writes are denied, so a headless embedder that forgets to wire
   // it fails closed.
   onApprovalRequest?: (req: ApprovalRequest) => Promise<boolean>;
-  // Already namespaced by mcp.ts.
   mcpTools?: ToolSet;
   // MCP tools that must go through the approval popup — everything from a
   // non-trusted server.
   mcpGated?: string[];
-  // When false the runCommand tool is absent entirely, not just denied.
   shellEnabled?: boolean;
   // Appended to the system prompt for this turn only — invocation is
   // per-message, not sticky.
   skills?: Skill[];
   // Absent → the askUser tool is not offered (headless fail-soft).
   onAskUser?: (req: AskUserRequest) => Promise<string>;
-  // Absent → the skill tools are not offered.
   skillActions?: SkillActions;
   reasoning?: ReasoningLevel;
   // Whatever streamed before the abort is kept.
   abortSignal?: AbortSignal;
 };
 
-// Only a model that keeps requesting writes after denials hits this.
+// Bound repeated approval-resume requests.
 const MAX_APPROVAL_ROUNDS = 8;
 
 export async function streamChat({
@@ -121,15 +113,13 @@ export async function streamChat({
   reasoning = DEFAULT_REASONING_LEVEL,
   abortSignal,
 }: StreamChatArgs) {
-  // So resolve() reads a live token. No-op for key providers.
+  // Refresh OAuth before resolve() reads the token; key providers are a no-op.
   await ensureProviderReady(provider);
 
   const convo: ModelMessage[] = [...messages];
 
-  // The ChatGPT backend rejects any request that doesn't explicitly set
-  // store:false. Merged, not spread, because the reasoning option lands in the
-  // same `openai` namespace — a top-level spread would drop store:false and
-  // break every OAuth turn.
+  // ChatGPT requires store:false; merge one level deep so reasoning options
+  // cannot overwrite it in the shared openai namespace.
   const providerOptions = mergeProviderOptions(
     providers[provider].auth === "oauth"
       ? { openai: { store: false } }
@@ -137,7 +127,6 @@ export async function streamChat({
     reasoningOptions(provider, reasoning),
   );
 
-  // A missing callback simply omits its tool.
   const interactiveTools = makeInteractiveTools({ onAskUser, skillActions });
 
   const tools: ToolSet = {
@@ -147,8 +136,7 @@ export async function streamChat({
     ...mcpTools,
   };
 
-  // Absent from this gate: the read-only tools, askUser (an interaction, not a
-  // side effect), and anything from a trusted server.
+  // Exclude read-only, interactive, and trusted MCP tools from approval.
   const toolApproval: Record<string, "user-approval"> = {
     editFile: "user-approval",
     writeFile: "user-approval",
@@ -161,7 +149,6 @@ export async function streamChat({
   }
   for (const name of mcpGated ?? []) toolApproval[name] = "user-approval";
 
-  // Each clause is added only when its tool is actually wired.
   let system = SYSTEM_PROMPT;
   if (shellEnabled) system += SHELL_PROMPT;
   if (skillActions) system += SKILLS_PROMPT;

@@ -4,6 +4,7 @@ import { fetchModels, type FetchModelsResult } from "../models";
 import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
 import type { ReasoningLevel } from "../reasoning";
+import "./overlayBox";
 
 type ModelPickerProps = {
   provider: Provider;
@@ -49,8 +50,6 @@ export default function ModelPicker({
   }, [all, filter]);
 
   useKeyboard((key) => {
-    // A ctrl chord, because the filter <input> is focused and a bare letter has
-    // to stay available for type-ahead.
     if (key.ctrl && key.name === "r") {
       key.preventDefault();
       onSwitchReasoning();
@@ -67,7 +66,6 @@ export default function ModelPicker({
         break;
       case "return":
         key.preventDefault();
-        // Preserve manual IDs when discovery fails or filtering finds no match.
         if (matches[selected]) {
           onSelect(matches[selected]);
         } else if (filter.trim()) {
@@ -79,8 +77,6 @@ export default function ModelPicker({
         onSwitchProvider();
         break;
       case "q":
-        // Only on a pristine filter, so a literal "q" can still start a
-        // type-ahead ("qwen"). With text present, let the input receive it.
         if (filter === "") {
           key.preventDefault();
           onClose();
@@ -96,7 +92,7 @@ export default function ModelPicker({
   const visible = matches.slice(start, start + WINDOW);
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -166,6 +162,6 @@ export default function ModelPicker({
       <text fg={t.textDim} marginTop={1}>
         ↵ select ⋅ esc switch provider ⋅ ^r thinking ({reasoning}) ⋅ q quit
       </text>
-    </box>
+    </overlay-box>
   );
 }

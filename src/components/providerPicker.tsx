@@ -7,6 +7,7 @@ import {
   type ProviderId,
 } from "../providers";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type ProviderPickerProps = {
   current: ProviderId;
@@ -55,7 +56,7 @@ export default function ProviderPicker({
   );
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -68,7 +69,6 @@ export default function ProviderPicker({
       {providerList.map((p, i) => {
         const isSelected = i === selected;
         const ready = hasApiKey(p);
-        // OAuth providers "sign in" rather than take a key.
         const readyLabel = p.auth === "oauth" ? "signed in" : "key ✓";
         const needLabel = p.auth === "oauth" ? "sign in" : "key needed";
         return (
@@ -82,8 +82,7 @@ export default function ProviderPicker({
               {p.id === current ? "● " : "  "}
               {p.label.padEnd(labelWidth, " ")}
             </text>
-            {/* Presence only — the key value is never read or shown.
-                Selecting an unready provider opens the paste/sign-in prompt. */}
+            {/* Show only credential presence; selecting an unready provider starts authentication. */}
             <text fg={ready ? t.successDim : t.warning}>
               {"  "}
               {ready ? readyLabel : needLabel}
@@ -91,6 +90,6 @@ export default function ProviderPicker({
           </box>
         );
       })}
-    </box>
+    </overlay-box>
   );
 }

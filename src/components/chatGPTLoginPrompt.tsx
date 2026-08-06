@@ -2,11 +2,10 @@ import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
+import "./overlayBox";
 
 type ChatGPTLoginPromptProps = {
   provider: Provider;
-  // Resolves to null on success, or an error to show inline — the prompt stays
-  // open so the user can retry or esc out.
   onLogin: () => Promise<string | null>;
   onCancel: () => void;
 };
@@ -29,14 +28,11 @@ export default function ChatGPTLoginPrompt({
       setError(failure);
       return;
     }
-    // Parent unmounts us.
   }
 
   useKeyboard((key) => {
     if (key.name === "escape") {
       key.preventDefault();
-      // Only when not mid-flight: esc during the wait would leave a dangling
-      // prompt state. The loopback server times out on its own.
       if (!waiting) onCancel();
       return;
     }
@@ -47,7 +43,7 @@ export default function ChatGPTLoginPrompt({
   });
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -59,8 +55,8 @@ export default function ChatGPTLoginPrompt({
       minWidth={56}
     >
       <text fg={t.textSecondary} wrapMode="word">
-        Sign in with your ChatGPT account to use your plan's Codex quota
-        instead of a paid API key.
+        Sign in with your ChatGPT account to use your plan's Codex quota instead
+        of a paid API key.
       </text>
       {waiting ? (
         <text fg={t.warning} marginTop={1} wrapMode="word">
@@ -77,6 +73,6 @@ export default function ChatGPTLoginPrompt({
           {error}
         </text>
       )}
-    </box>
+    </overlay-box>
   );
 }

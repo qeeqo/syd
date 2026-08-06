@@ -3,11 +3,10 @@ import { useKeyboard } from "@opentui/react";
 import { validateApiKey } from "../auth";
 import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
+import "./overlayBox";
 
 type ApiKeyPromptProps = {
   provider: Provider;
-  // Resolves to null on success, or an error to show inline — the prompt stays
-  // open so the user can fix the paste and retry.
   onSubmit: (key: string) => Promise<string | null>;
   onCancel: () => void;
 };
@@ -18,9 +17,6 @@ export default function ApiKeyPrompt({
   onCancel,
 }: ApiKeyPromptProps) {
   const t = useTheme();
-  // Renders the text in the popup background colour so the pasted key is
-  // invisible: OpenTUI has no native masked input. From the theme, so masking
-  // holds under any palette.
   const BG = t.panelBg;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +40,6 @@ export default function ApiKeyPrompt({
     setVerifying(true);
     const failure = await onSubmit(key);
     if (failure) {
-      // Still open: show why and let the user re-paste or esc out.
       setVerifying(false);
       setError(failure);
       return;
@@ -53,7 +48,7 @@ export default function ApiKeyPrompt({
   }
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={BG}
@@ -65,8 +60,6 @@ export default function ApiKeyPrompt({
       minWidth={56}
     >
       <text fg={t.textSecondary}>Paste your API key. Input is hidden.</text>
-      {/* Mounted and focused so typing/paste lands here, but
-          text + cursor colors match the popup background — nothing shows. */}
       <input
         value={draft}
         focused
@@ -99,6 +92,6 @@ export default function ApiKeyPrompt({
           ↵ verify & save · esc cancel
         </text>
       )}
-    </box>
+    </overlay-box>
   );
 }

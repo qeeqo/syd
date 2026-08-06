@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 export type McpToolView = { name: string; description: string };
 
@@ -95,7 +96,7 @@ export default function McpToolsPopup({
   });
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -114,11 +115,9 @@ export default function McpToolsPopup({
       )}
 
       <text fg={t.textDim} marginTop={1}>
-        {mode === "list"
-          ? "↵ open · esc close"
-          : "PgUp/PgDn page · ←/esc back"}
+        {mode === "list" ? "↵ open · esc close" : "PgUp/PgDn page · ←/esc back"}
       </text>
-    </box>
+    </overlay-box>
   );
 }
 
@@ -180,7 +179,9 @@ function ServerList({
               {"  "}
               {server.where} · {server.trust} ·{" "}
             </text>
-            <text fg={server.connected ? t.success : t.dangerDim}>{status}</text>
+            <text fg={server.connected ? t.success : t.dangerDim}>
+              {status}
+            </text>
           </box>
         );
       })}

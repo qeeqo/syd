@@ -2,12 +2,11 @@ import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import type { ApprovalRequest } from "../chat";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type ApprovalPromptProps = {
   request: ApprovalRequest;
-  // Called exactly once; App resolves the paused stream with it.
   onDecide: (approved: boolean) => void;
-  // The escape hatch for a multi-file change already committed to.
   onApproveAll: () => void;
 };
 
@@ -38,16 +37,13 @@ export default function ApprovalPrompt({
 
   const label = request.note?.label ?? `run ${request.tool}`;
 
-  // Only when there's no structured preview at all — an MCP tool. File tools
-  // carry a diff and the shell tool puts its command in the label, so the raw
-  // JSON would just be noise.
   const argsText =
     request.note == null && request.input != null
       ? formatArgs(request.input)
       : null;
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.warnBorder}
       backgroundColor={t.panelBg}
@@ -63,8 +59,6 @@ export default function ApprovalPrompt({
         syd wants to {label}
       </text>
       {request.note?.diffText && (
-        /* Tall diffs scroll inside the popup instead of growing past the
-           screen; small ones take only the height they need. */
         <scrollbox
           scrollY
           maxHeight={14}
@@ -112,13 +106,11 @@ export default function ApprovalPrompt({
           [a] approve all
         </text>
       </box>
-    </box>
+    </overlay-box>
   );
 }
 
-// Defensive: input is whatever the model produced, so a value that can't be
-// stringified (a cycle, a bigint) falls back to String() rather than throwing
-// into the UI.
+// Model input may not be JSON-serializable; fall back instead of throwing into the UI.
 function formatArgs(input: unknown): string | null {
   if (input && typeof input === "object" && Object.keys(input).length === 0) {
     return null;

@@ -8,11 +8,10 @@ import {
   type Skill,
 } from "../skills";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type SkillsPopupProps = {
   skills: Skill[];
-  // `previousName` is the handle being edited (so App can clean up a rename),
-  // or null when creating. App owns the write; this popup only validates.
   onSave: (skill: Skill, previousName: string | null) => void;
   onDelete: (name: string) => void;
   onDismiss: () => void;
@@ -20,8 +19,6 @@ type SkillsPopupProps = {
 
 const MAX_VISIBLE = 8;
 
-// Two modes: a list of skills and an editor form. Skills are what @name invokes
-// in a message — this is where they're authored without leaving syd.
 export default function SkillsPopup({
   skills,
   onSave,
@@ -31,12 +28,7 @@ export default function SkillsPopup({
   const t = useTheme();
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [selected, setSelected] = useState(0);
-  // Two-step delete guard: first `d` arms for this name, second confirms. Any
-  // other key disarms.
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-
-  // The textarea is uncontrolled (seeded once via initialValue), so it's
-  // remounted per session via `editKey` and read back through `textRef`.
   const [editingName, setEditingName] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [initialInstructions, setInitialInstructions] = useState("");
@@ -46,9 +38,8 @@ export default function SkillsPopup({
   );
   const [error, setError] = useState<string | null>(null);
   const textRef = useRef<TextareaRenderable | null>(null);
-
-  // The list may have shrunk under us after a delete.
-  const safeSelected = skills.length === 0 ? 0 : Math.min(selected, skills.length - 1);
+  const safeSelected =
+    skills.length === 0 ? 0 : Math.min(selected, skills.length - 1);
 
   function openNew() {
     setEditingName(null);
@@ -89,12 +80,12 @@ export default function SkillsPopup({
       return;
     }
     if (body.length > MAX_SKILL_INSTRUCTIONS) {
-      setError(`Instructions are too long (max ${MAX_SKILL_INSTRUCTIONS} characters).`);
+      setError(
+        `Instructions are too long (max ${MAX_SKILL_INSTRUCTIONS} characters).`,
+      );
       setFocusedField("instructions");
       return;
     }
-    // Renaming onto another skill, or creating a duplicate. Keeping a skill's
-    // own name is fine.
     if (skills.some((s) => s.name === name && s.name !== editingName)) {
       setError(`A skill named @${name} already exists.`);
       setFocusedField("name");
@@ -154,8 +145,6 @@ export default function SkillsPopup({
       return;
     }
 
-    // Intercept only the three chrome keys; everything else falls through to
-    // the focused field so typing works normally.
     if (key.name === "tab") {
       key.preventDefault();
       setFocusedField((f) => (f === "name" ? "instructions" : "name"));
@@ -173,7 +162,7 @@ export default function SkillsPopup({
   });
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -217,11 +206,10 @@ export default function SkillsPopup({
             : "↵ edit · n new · d delete · esc close"
           : "tab switch field · ^s save · esc cancel"}
       </text>
-    </box>
+    </overlay-box>
   );
 }
 
-// Windowed so a long list stays compact, mirroring the /mcp server list.
 function SkillList({
   skills,
   selected,
@@ -310,9 +298,6 @@ function SkillList({
   );
 }
 
-// Only the focused field takes keystrokes (Tab toggles). The textarea is
-// uncontrolled — seeded via initialValue, remounted per session with `editKey`,
-// read back through the ref on save.
 function SkillEditor({
   editKey,
   titleDraft,

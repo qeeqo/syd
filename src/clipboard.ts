@@ -1,5 +1,4 @@
-// Security invariant: text goes to the tool's stdin and the command is an argv
-// array (no shell), so clipboard content can never be read as shell syntax.
+// Pass text through stdin without a shell so clipboard contents cannot execute.
 
 function clipboardCommand(): string[] {
   switch (process.platform) {
@@ -17,8 +16,7 @@ function clipboardCommand(): string[] {
 export async function copyToClipboard(text: string): Promise<void> {
   const cmd = clipboardCommand();
 
-  // Type left to inference: `stdin: "pipe"` is what narrows proc.stdin to a
-  // writable FileSink.
+  // Let Bun infer FileSink from stdin:"pipe"; a broader process type loses it.
   let proc;
   try {
     proc = Bun.spawn(cmd, {

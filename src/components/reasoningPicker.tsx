@@ -2,20 +2,13 @@ import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { REASONING_LEVELS, type ReasoningLevel } from "../reasoning.ts";
 import { useTheme } from "./themeContext.tsx";
+import "./overlayBox";
 
 type ReasoningPickerProps = {
-  // Marks the ● row and is what Escape reverts to.
   current: ReasoningLevel;
   onSelect: (level: ReasoningLevel) => void;
   onDismiss: () => void;
-  // Set when opened with ^r from the model picker, so the footer can say where
-  // esc/↵ will land.
   returnsToModels?: boolean;
-  // Supplied by the caller rather than written here: the only descriptions
-  // worth showing are the ones the provider publishes for the active model. A
-  // level it says nothing about gets no line — better an honest blank than syd
-  // inventing a characterisation it can't vouch for. Partial by nature: no
-  // provider describes "default" or "off".
   descriptions?: Partial<Record<ReasoningLevel, string>>;
 };
 
@@ -63,7 +56,7 @@ export default function ReasoningPicker({
   );
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -85,10 +78,6 @@ export default function ReasoningPicker({
             gap={1}
             backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            {/* flexShrink={0}: the label is the row's identity and must never
-                be the thing that gives way. Without it a narrow terminal
-                squeezes it until it wraps, which both re-heights the row and
-                orphans the ● marker onto its own line. */}
             <text
               fg={isSelected ? t.textSelected : t.accent}
               flexShrink={0}
@@ -97,13 +86,6 @@ export default function ReasoningPicker({
               {level === current ? "● " : "  "}
               {level.padEnd(labelWidth, " ")}
             </text>
-            {/* Beside the label, not under it. A description that appears only
-                on the highlighted row makes the popup grow and shrink as you
-                move through it, so every row shifts under the cursor; inline,
-                each row is exactly one line whatever is selected. It also shows
-                every level's wording at once instead of one at a time.
-                wrapMode="none" is what holds that line count at one — a wrap
-                would put the jumping right back. */}
             {descriptions?.[level] && (
               <text
                 fg={t.textMuted}
@@ -121,6 +103,6 @@ export default function ReasoningPicker({
       <text fg={t.textDim} marginTop={1}>
         {returnsToModels ? "esc back to models" : "esc cancel"}
       </text>
-    </box>
+    </overlay-box>
   );
 }

@@ -1,39 +1,32 @@
 import type { Skill } from "../skills";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type MentionSuggestionsProps = {
   items: Skill[];
   selectedIndex: number;
 };
 
-// Window the list around the selection past this, mirroring CommandSuggestions.
 const MAX_VISIBLE = 6;
 
-// So the palette can show @name plus a hint, and you can tell skills apart
-// without opening /skills.
 function hint(skill: Skill): string {
   const firstLine = skill.instructions.split("\n", 1)[0].trim();
   return firstLine.length > 60 ? `${firstLine.slice(0, 59)}…` : firstLine;
 }
 
-// Purely presentational: chatInputBox owns the selection, keys, and completion.
 export default function MentionSuggestions({
   items,
   selectedIndex,
 }: MentionSuggestionsProps) {
   const t = useTheme();
   const total = items.length;
-
   const start = Math.max(0, selectedIndex - (MAX_VISIBLE - 1));
   const visible = items.slice(start, start + MAX_VISIBLE);
-
-  // Align hints into a column.
   const nameWidth = items.reduce((w, s) => Math.max(w, s.name.length), 0);
-
   const hiddenBelow = total - (start + visible.length);
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -74,6 +67,6 @@ export default function MentionSuggestions({
         {" "}
         ↵/tab insert · esc dismiss
       </text>
-    </box>
+    </overlay-box>
   );
 }

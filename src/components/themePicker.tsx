@@ -2,18 +2,15 @@ import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { themeList } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
+import "./overlayBox";
 
 type ThemePickerProps = {
-  // Marks the ● row and is what Escape reverts to.
   current: string;
-  // Live preview as the highlight moves — App applies without persisting.
   onHighlight: (name: string) => void;
   onSelect: (name: string) => void;
-  // App restores `current`, undoing any live preview.
   onDismiss: () => void;
 };
 
-// Its own chrome reads from useTheme(), so it recolors as you preview.
 export default function ThemePicker({
   current,
   onHighlight,
@@ -56,10 +53,13 @@ export default function ThemePicker({
     }
   });
 
-  const labelWidth = themeList.reduce((w, th) => Math.max(w, th.label.length), 0);
+  const labelWidth = themeList.reduce(
+    (w, th) => Math.max(w, th.label.length),
+    0,
+  );
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -80,9 +80,6 @@ export default function ThemePicker({
             paddingX={1}
             backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            {/* padEnd keeps the selection band the same width on every row —
-                the box is content-sized, so without it the highlight would
-                ragged-edge along the label lengths. */}
             <text fg={isSelected ? t.textSelected : t.accent}>
               {th.name === current ? "● " : "  "}
               {th.label.padEnd(labelWidth, " ")}
@@ -94,6 +91,6 @@ export default function ThemePicker({
       <text fg={t.textDim} marginTop={1}>
         esc cancel
       </text>
-    </box>
+    </overlay-box>
   );
 }

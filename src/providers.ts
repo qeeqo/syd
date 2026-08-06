@@ -1,6 +1,4 @@
-// Security invariant: key VALUES flow through exactly one path — paste prompt →
-// verifyApiKey → auth store. Everything else checks only *presence*
-// (hasApiKey) and lets the SDKs read process.env themselves.
+// Provider SDKs read API keys from process.env; UI code should expose only presence.
 
 import { google } from "@ai-sdk/google";
 import { anthropic } from "@ai-sdk/anthropic";
@@ -38,8 +36,6 @@ export type ApiKeyProvider = BaseProvider & {
   parseModels: (json: unknown) => string[];
 };
 
-// OAuth rather than a pasted key. It has a live catalog too, just not the
-// api.openai.com one, behind a short-lived bearer.
 export type OAuthProvider = BaseProvider & {
   auth: "oauth";
   // Fallback when the live list can't be fetched, so the picker is never empty.
@@ -48,8 +44,7 @@ export type OAuthProvider = BaseProvider & {
   // a closure captured at startup would go stale. Null when there's no token.
   listRequest: () => { url: string; headers: Record<string, string> } | null;
   parseModels: (json: unknown) => string[];
-  // model → effort → the provider's own wording. syd never writes these
-  // itself; a provider that publishes nothing yields {}.
+  // Preserve provider-authored wording; do not invent missing descriptions.
   parseReasoningDescriptions: (
     json: unknown,
   ) => Record<string, Record<string, string>>;
@@ -57,7 +52,6 @@ export type OAuthProvider = BaseProvider & {
 
 export type Provider = ApiKeyProvider | OAuthProvider;
 
-// Narrows an untrusted value for defensive parsing.
 function asRecords(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   return value.filter(
@@ -136,16 +130,11 @@ export const providers: Record<ProviderId, Provider> = {
     id: "openai-chatgpt",
     label: "OpenAI (ChatGPT plan)",
     auth: "oauth",
-    // Offline fallback only — the real set is account/plan-dependent and
-    // fetched live below. The picker also accepts any typed id.
+    // Offline fallback; the live set remains account- and plan-dependent.
     defaultModel: "gpt-5.5",
     models: ["gpt-5.5", "gpt-5.4"],
-    // `client_version` is required — omitting it is a 400, not a default — and
-    // it gates which models come back. syd has no meaningful version to claim,
-    // so it sends a floor value and filters on the response's own flags instead.
-    //
-    // Undocumented private API: it can change or vanish without notice, so every
-    // consumer treats failure as "fall back to `models`", never as an error.
+    // Private endpoint: client_version is mandatory and affects visibility, so send
+    // a floor value, trust response flags, and always retain an offline fallback.
     listRequest: () => {
       const tok = getActiveChatGPT();
       if (!tok) return null;
@@ -157,9 +146,7 @@ export const providers: Record<ProviderId, Provider> = {
         },
       };
     },
-    // The backend's own flags drop internal entries like "codex-auto-review".
-    // Order is preserved — it returns them by its own priority, which beats a
-    // string sort, so unlike the key providers this is NOT re-sorted.
+    // Response flags exclude internal models; preserve the backend's priority order.
     parseModels: (json) =>
       asRecords((json as { models?: unknown })?.models)
         .filter(
@@ -188,8 +175,7 @@ export const providers: Record<ProviderId, Provider> = {
       }
       return out;
     },
-    // ensureProviderReady refreshes before the call, so the token read here is
-    // fresh. `.responses` targets the API shape this backend speaks.
+    // Read the refreshed token at call time; this backend speaks the Responses API.
     resolve: (model) => {
       const tok = getActiveChatGPT();
       return createOpenAI({
@@ -201,15 +187,13 @@ export const providers: Record<ProviderId, Provider> = {
   },
 };
 
-// Stable order for pickers and help text.
 export const providerList: Provider[] = Object.values(providers);
 
 export function isProviderId(value: string): value is ProviderId {
   return value in providers;
 }
 
-// Presence, not validity — the value never leaves process.env, and an expired
-// OAuth token is handled at call time by refresh.
+// Check presence only; OAuth validity is refreshed at call time.
 export function hasApiKey(provider: Provider): boolean {
   if (provider.auth === "oauth") return getActiveChatGPT() !== null;
   const value = process.env[provider.envVar];

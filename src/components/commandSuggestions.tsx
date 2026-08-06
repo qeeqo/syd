@@ -1,12 +1,12 @@
 import type { Command } from "../commands/type";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type CommandSuggestionsProps = {
   items: Command[];
   selectedIndex: number;
 };
 
-// Past this the list windows around the selection so the popup stays compact.
 const MAX_VISIBLE = 6;
 
 export default function CommandSuggestions({
@@ -15,19 +15,13 @@ export default function CommandSuggestions({
 }: CommandSuggestionsProps) {
   const t = useTheme();
   const total = items.length;
-
-  // Only scroll once the selection would fall past the last visible row, so
-  // the contents don't shift while arrowing through the first page.
   const start = Math.max(0, selectedIndex - (MAX_VISIBLE - 1));
   const visible = items.slice(start, start + MAX_VISIBLE);
-
-  // Align descriptions into a column.
   const nameWidth = items.reduce((w, c) => Math.max(w, c.name.length), 0);
-
   const hiddenBelow = total - (start + visible.length);
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -66,6 +60,6 @@ export default function CommandSuggestions({
         {" "}
         ↵ run · tab complete · esc dismiss
       </text>
-    </box>
+    </overlay-box>
   );
 }

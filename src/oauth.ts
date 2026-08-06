@@ -1,14 +1,5 @@
-// Lets a user authenticate with their ChatGPT account instead of a pasted API
-// key, reusing OpenAI's own Codex CLI OAuth client (public, no secret) with an
-// Authorization-Code + PKCE loopback flow.
-//
-// Unofficial: this talks to the non-public chatgpt.com/backend-api, which
-// OpenAI can change or restrict at any time.
-//
-// Security invariants:
-//   - Token values are never logged, rendered, or put in error messages.
-//   - `state` is validated on callback; the PKCE verifier never leaves this
-//     process; the loopback binds localhost only.
+// Unofficial ChatGPT integration using Codex CLI's public PKCE client and
+// private backend; OpenAI may change or restrict it without notice.
 
 // Public client — PKCE protects the exchange, and it only whitelists the fixed
 // loopback redirect below.
@@ -17,8 +8,7 @@ const ISSUER = "https://auth.openai.com";
 const AUTHORIZE_URL = `${ISSUER}/oauth/authorize`;
 const TOKEN_URL = `${ISSUER}/oauth/token`;
 
-// Fixed: OpenAI's client accepts only this exact loopback URL, so the port
-// can't be changed to dodge a conflict. If 1455 is taken, login waits.
+// OpenAI whitelists this exact loopback URI, so port conflicts cannot fall back.
 const REDIRECT_PORT = 1455;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/auth/callback`;
 const CALLBACK_PATH = "/auth/callback";
@@ -28,11 +18,9 @@ const SCOPE = "openid profile email offline_access";
 // model calls.
 const ORIGINATOR = "codex_cli_rs";
 
-// Exported so providers.ts builds the model without duplicating these.
 export const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
-// `accountId` is required as a header on every backend call; `expiresAt` is
-// epoch ms, used to refresh before a call would 401.
+// Backend calls require the account ID as a header.
 export type ChatGPTTokens = {
   access: string;
   refresh: string;
@@ -40,10 +28,8 @@ export type ChatGPTTokens = {
   expiresAt: number;
 };
 
-// --- Active token holder ----------------------------------------------------
-// providers.ts's oauth `resolve` is synchronous (the SDK reads a plain string),
-// but the live access token changes as it refreshes — so resolve reads this at
-// call time instead. Never holds the refresh token, which stays on disk.
+// resolve() is synchronous, so it reads the refreshable access token from this
+// process-local holder; refresh tokens remain on disk.
 
 let active: { access: string; accountId: string | null } | null = null;
 
@@ -59,8 +45,6 @@ export function getActiveChatGPT(): {
 } | null {
   return active;
 }
-
-// --- PKCE + small encoding helpers -----------------------------------------
 
 // base64url without padding — what PKCE and JWT both use.
 function base64url(bytes: Uint8Array): string {
@@ -83,9 +67,8 @@ async function sha256(input: string): Promise<Uint8Array> {
   return new Uint8Array(digest);
 }
 
-// The claim lives under the namespaced "https://api.openai.com/auth" object.
-// JWTs are untrusted here (decoded, never verified — the token endpoint is the
-// trust anchor), so every access is defensive and any surprise yields null.
+// Decode only to extract the namespaced account claim; trust comes from the
+// token endpoint, and malformed or unexpected JWTs yield null.
 function accountIdFromIdToken(idToken: string | undefined): string | null {
   if (!idToken) return null;
   const parts = idToken.split(".");
@@ -104,7 +87,6 @@ function accountIdFromIdToken(idToken: string | undefined): string | null {
   return null;
 }
 
-// Unknown fields ignored; missing expected ones handled by the parser below.
 type TokenResponse = {
   access_token?: unknown;
   refresh_token?: unknown;
@@ -112,9 +94,7 @@ type TokenResponse = {
   expires_in?: unknown;
 };
 
-// Carries the previous refresh token forward when a refresh response omits a
-// new one (the endpoint may not rotate it). Throws a value-free error if the
-// response is unusable.
+// Preserve the previous refresh token when the endpoint does not rotate it.
 function toTokens(
   body: TokenResponse,
   prevRefresh?: string,
@@ -137,17 +117,12 @@ function toTokens(
   };
 }
 
-// --- The interactive login flow --------------------------------------------
-
 export type LoginHandle = {
   url: string;
-  // Rejects on timeout, mismatched state, or exchange failure. Awaiting this
-  // also tears down the loopback server.
   result: Promise<ChatGPTTokens>;
 };
 
-// The caller opens `url` and awaits `result`. The server auto-closes on
-// success, error, or `timeoutMs`.
+// Settlement of result always tears down the loopback server.
 export async function startChatGPTLogin(
   timeoutMs = 300_000,
 ): Promise<LoginHandle> {
@@ -167,7 +142,6 @@ export async function startChatGPTLogin(
   authorize.searchParams.set("originator", ORIGINATOR);
   authorize.searchParams.set("state", state);
 
-  // The finally-block stops the server exactly once, however this settles.
   let settle!: (value: ChatGPTTokens) => void;
   let fail!: (err: Error) => void;
   const result = new Promise<ChatGPTTokens>((res, rej) => {
@@ -183,7 +157,6 @@ export async function startChatGPTLogin(
       if (url.pathname !== CALLBACK_PATH) {
         return new Response("Not found", { status: 404 });
       }
-      // The provider reports login errors via ?error=...
       const err = url.searchParams.get("error");
       if (err) {
         // RFC 6749 §4.1.2.1 — the bare code alone doesn't explain the failure.
@@ -213,19 +186,16 @@ export async function startChatGPTLogin(
     timeoutMs,
   );
 
-  // Release the port and the timer once.
   const done = result.finally(() => {
     clearTimeout(timer);
-    // Graceful stop, not stop(true): the callback page is still flushing, and
-    // closing active connections would reset that write — the browser would
-    // show an error despite a successful login.
+    // Do not force-close while the browser may still be receiving the result page.
     server.stop();
   });
 
   return { url: authorize.toString(), result: done };
 }
 
-// PKCE proves we started the flow.
+// The verifier binds an intercepted code to this login attempt.
 async function exchangeCode(
   code: string,
   codeVerifier: string,
@@ -249,7 +219,6 @@ async function exchangeCode(
   return toTokens((await res.json()) as TokenResponse);
 }
 
-// The refresh token is reused if the server doesn't return a new one.
 export async function refreshChatGPTTokens(
   refresh: string,
 ): Promise<ChatGPTTokens> {
@@ -268,9 +237,8 @@ export async function refreshChatGPTTokens(
   return toTokens((await res.json()) as TokenResponse, refresh);
 }
 
-// Exercises one tiny real call so a rejected model id or a non-working account
-// surfaces now instead of on the user's first prompt. Returns null on success
-// or a short reason otherwise — never a token value.
+// Probe now so account/model rejection surfaces before the first real prompt;
+// never return token data.
 export async function verifyChatGPTAccess(model: string): Promise<string | null> {
   const tok = getActiveChatGPT();
   if (!tok) return "not signed in";
@@ -318,7 +286,6 @@ export async function verifyChatGPTAccess(model: string): Promise<string | null>
   }
 }
 
-// `session_id` is a fresh uuid per call.
 export function chatgptHeaders(accountId: string | null): Record<string, string> {
   const headers: Record<string, string> = {
     "OpenAI-Beta": "responses=experimental",
@@ -340,7 +307,7 @@ export function openUrl(url: string): void {
   try {
     Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore" });
   } catch {
-    // Ignore — the UI prints the URL as a fallback.
+    return undefined;
   }
 }
 

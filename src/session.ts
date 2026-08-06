@@ -40,7 +40,8 @@ function isMessage(value: unknown): value is Message {
 
 function sanitizeMessage(m: Message): Message {
   if (m.tone === undefined || isSystemTone(m.tone)) return m;
-  return { ...m, tone: undefined }; // JSON.stringify omits undefined keys
+  // Preserve the session while dropping an unrecognized tone.
+  return { ...m, tone: undefined };
 }
 
 function parseSession(value: unknown): Session | null {
@@ -128,7 +129,7 @@ export async function listSessions(cwd?: string): Promise<Session[]> {
       if (cwd && session.cwd !== cwd) continue;
       sessions.push(session);
     } catch {
-      // skip a corrupt file rather than fail the whole list
+      // Skip corrupt files without failing the whole history list.
     }
   }
 

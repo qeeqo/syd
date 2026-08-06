@@ -4,9 +4,7 @@ import type { Message, SystemTone } from "../commands/type";
 import type { ThemeTokens } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
-// Theme tokens are discrete, so the loader's in-between stops are synthesized
-// here. Malformed input falls back to white rather than throwing — this paints
-// every frame and must never crash the transcript.
+// Synthesize intermediate loader colours and fail soft because this runs every frame.
 function hexToRgb(hex: string): [number, number, number] {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
   if (!m) return [255, 255, 255];
@@ -50,7 +48,6 @@ function createSyntaxStyle(t: ThemeTokens): SyntaxStyle {
     label: { fg: t.warning },
     module: { fg: t.info },
 
-    // Markdown prose surrounding code blocks.
     "markup.heading": { fg: t.accent, bold: true },
     "markup.strong": { bold: true },
     "markup.italic": { fg: t.info, italic: true },
@@ -64,10 +61,8 @@ function createSyntaxStyle(t: ThemeTokens): SyntaxStyle {
   });
 }
 
-// A left border, not a glyph prefixed to the text: the border is drawn for the
-// box's full height, so a wrapped notice keeps the rule on every line.
-// Only `vertical` is painted, but BorderCharacters wants the whole set — the
-// left-edge entries all carry the rule so a corner can't punch a hole in it.
+// A border keeps the rule on every wrapped line. Repeat it in left-edge slots
+// because BorderCharacters requires a full set.
 const RULE = "▏";
 const RULE_CHARS: BorderCharacters = {
   topLeft: RULE,
@@ -107,7 +102,6 @@ function GlowLoader() {
     return () => clearInterval(timer);
   }, []);
 
-  // Bounce the highlight head 0 → GLOW_DOTS-1 → 0 across the row.
   const period = (GLOW_DOTS - 1) * 2;
   const phase = tick % period;
   const head = phase < GLOW_DOTS ? phase : period - phase;
@@ -162,9 +156,7 @@ export default function ChatMain({
         {messages.length === 0 ? (
           <SydBanner model={model} />
         ) : (
-          /* Clips to the viewport instead of overflowing onto the input box.
-             stickyScroll pins the latest output while streaming, and releases
-             once the user scrolls up to read earlier messages. */
+          /* Clip to the viewport; stickyScroll follows output until the user scrolls up. */
           <scrollbox
             flexGrow={1}
             scrollY
@@ -201,8 +193,6 @@ function shortCwd(): string {
   return cwd;
 }
 
-// alignItems="center" centres the colophon's three lines against the wordmark's
-// six, so neither block looks dropped.
 function SydBanner({ model }: { model: string }) {
   const t = useTheme();
   return (
@@ -215,8 +205,7 @@ function SydBanner({ model }: { model: string }) {
       paddingTop={1}
     >
       <box flexDirection="row" alignItems="center" gap={3}>
-        {/* Uppercase only — every OpenTUI ascii font renders lowercase blank.
-            "pallet" draws glyphs in colour 1 over a fill in colour 2. */}
+        {/* OpenTUI ASCII fonts render lowercase blank, so the wordmark must be uppercase. */}
         <ascii-font text="SYD" font="pallet" color={[t.accent, t.accentDeep]} />
         <box flexDirection="column">
           <text fg={t.textDim}>{shortCwd()}</text>
@@ -231,14 +220,11 @@ function SydBanner({ model }: { model: string }) {
 type MessageBlockProps = {
   message: Message;
   syntaxStyle: SyntaxStyle;
-  // True only while this specific turn is actively receiving streamed tokens.
   streaming: boolean;
 };
 
-// Load-bearing: without memo the whole transcript re-renders and the <scrollbox>
-// re-measures on every flush, which makes in-flight text jump and garble. It
-// works because App's setMessages preserves the object reference of every
-// unchanged message, so the shallow compare skips all but the live tail.
+// Memoization prevents per-token scrollbox remeasurement; App preserves
+// references for unchanged messages.
 const MessageBlock = memo(function MessageBlock({
   message,
   syntaxStyle,
@@ -307,11 +293,7 @@ const MessageBlock = memo(function MessageBlock({
     );
   }
 
-  // Verbatim — no markdown parsing on what the user typed.
-  //
-  // alignSelf lets the tinted band size to its content instead of spanning the
-  // column; maxWidth then keeps a long message wrapping at the container edge
-  // rather than growing to the full length of an unwrapped line.
+  // Keep user text verbatim. Content-size the tint, but wrap long messages at the container edge.
   return (
     <box
       flexDirection="row"

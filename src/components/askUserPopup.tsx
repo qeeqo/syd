@@ -2,17 +2,14 @@ import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { AskUserRequest } from "../tools";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type AskUserPopupProps = {
   request: AskUserRequest;
   onAnswer: (answer: string) => void;
-  // App resolves the tool with a "dismissed" note so the model proceeds
-  // instead of hanging.
   onDismiss: () => void;
 };
 
-// A reusable interaction primitive: syd decides the content at runtime, so this
-// only knows how to present a question, never what it's for.
 export default function AskUserPopup({
   request,
   onAnswer,
@@ -20,7 +17,6 @@ export default function AskUserPopup({
 }: AskUserPopupProps) {
   const t = useTheme();
   const { question, options, allowInput } = request;
-  // The custom-answer row sits just past the last option.
   const customIndex = allowInput ? options.length : -1;
   const total = options.length + (allowInput ? 1 : 0);
   const [selected, setSelected] = useState(0);
@@ -39,8 +35,6 @@ export default function AskUserPopup({
         setSelected((i) => (i + 1) % total);
         break;
       case "return":
-        // On the custom row, let the focused input's onSubmit handle it (don't
-        // preventDefault), so the typed text is what gets submitted.
         if (!onCustomRow) {
           key.preventDefault();
           onAnswer(options[selected]);
@@ -55,12 +49,12 @@ export default function AskUserPopup({
 
   function submitCustom() {
     const answer = draft.trim();
-    if (answer.length === 0) return; // nothing typed yet — ignore Enter
+    if (answer.length === 0) return;
     onAnswer(answer);
   }
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.infoBorder}
       backgroundColor={t.panelBg}
@@ -104,8 +98,6 @@ export default function AskUserPopup({
               {onCustomRow ? "› " : "  "}
               type your own answer
             </text>
-            {/* Focused only while its row is selected, so option navigation
-                and free-text entry never fight over the keyboard. */}
             <box flexDirection="row" paddingLeft={2}>
               <text fg={t.textDim}>❯ </text>
               <input
@@ -132,6 +124,6 @@ export default function AskUserPopup({
           ? "type an answer · ↵ send · esc dismiss"
           : "↵ choose · esc dismiss"}
       </text>
-    </box>
+    </overlay-box>
   );
 }

@@ -1,6 +1,7 @@
 import { useKeyboard } from "@opentui/react";
 import { commandList } from "../commands/registry";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type HelpPopupProps = {
   onDismiss: () => void;
@@ -18,7 +19,7 @@ export default function HelpPopup({ onDismiss }: HelpPopupProps) {
   const nameWidth = commandList.reduce((w, c) => Math.max(w, c.name.length), 0);
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -37,6 +38,6 @@ export default function HelpPopup({ onDismiss }: HelpPopupProps) {
           </text>
         </box>
       ))}
-    </box>
+    </overlay-box>
   );
 }

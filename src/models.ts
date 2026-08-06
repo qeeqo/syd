@@ -1,27 +1,21 @@
-// Memoized per provider for the process lifetime: catalogs change on the order
-// of weeks. Failures fail soft — the user can always type a model id directly.
+// Cache slow-moving catalogs per process; failures leave manual entry available.
 
 import { providers, type Provider, type ProviderId } from "./providers";
 import { ensureProviderReady } from "./auth";
 
-// Numeric-aware and reversed, so "gpt-5" sorts above "gpt-4". Imperfect across
-// naming schemes, but it keeps current models near the top.
+// Reverse numeric sorting is only a heuristic across provider naming schemes.
 function byNewest(a: string, b: string): number {
   return b.localeCompare(a, undefined, { numeric: true, sensitivity: "base" });
 }
 
 const cache = new Map<ProviderId, string[]>();
 
-// provider → model → effort, filled from the same response as `cache`. A
-// provider that publishes none never gets an entry, and the picker then shows a
-// bare list rather than wording syd made up.
 const reasoningCache = new Map<
   ProviderId,
   Record<string, Record<string, string>>
 >();
 
-// Cache-only by design: the picker opens on a keystroke and must render
-// immediately, so nothing here triggers a request.
+// Cache-only so opening the picker never starts network work.
 export function reasoningDescriptions(
   id: ProviderId,
   model: string,
@@ -31,13 +25,10 @@ export function reasoningDescriptions(
 
 export type FetchModelsResult =
   | { ok: true; models: string[] }
-  // All three still leave the picker usable via manual entry.
   | { ok: false; reason: "no-key" | "unreachable" | "empty" };
 
 async function load(provider: Provider): Promise<FetchModelsResult> {
-  // Refresh first so listRequest reads a valid token, then fall back to the
-  // baked-in list on any failure. Deliberately NOT sorted by byNewest — the
-  // backend returns its own priority order, which beats a string compare.
+  // Refresh before building the token-bound request; preserve backend priority order.
   if (provider.auth === "oauth") {
     const fallback: FetchModelsResult =
       provider.models.length > 0
@@ -52,8 +43,6 @@ async function load(provider: Provider): Promise<FetchModelsResult> {
         signal: AbortSignal.timeout(10_000),
       });
       if (!res.ok) return fallback;
-      // Both views come from one response, so they can never disagree about
-      // which catalog they came from.
       const body: unknown = await res.json();
       const models = provider.parseModels(body);
       if (models.length === 0) return fallback;

@@ -1,6 +1,3 @@
-// The model requests a call, the SDK validates arguments against inputSchema,
-// execute runs here, and the result is fed back as a tool-result message.
-
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import { structuredPatch } from "diff";
@@ -22,41 +19,42 @@ function insideProject(path: string): string | null {
   return abs;
 }
 
-// Huge and never what the user is asking about.
 const BLOCKED = new Set(["node_modules", ".git"]);
 
 function isBlocked(abs: string): boolean {
   return abs.split(sep).some((part) => BLOCKED.has(part));
 }
 
-// Bigger than this is almost certainly a lockfile or asset, not source, and it
-// would swamp the context window in one call.
+// Bound one read so a large file cannot swamp model context.
 const MAX_FILE_BYTES = 200_000;
 
-// structuredPatch runs a real line diff, so an overwrite touching one line
-// renders as one line rather than full-file churn. Returns "" when nothing
-// changed. Starts at ---/+++ (jsdiff's Index/=== header is skipped), matching
-// what OpenTUI's <diff> parses.
+// Build compact hunks and synthesize ---/+++ because OpenTUI expects unified
+// diff without jsdiff's extra header.
 function unifiedDiff(
   path: string,
   oldContent: string,
   newContent: string,
 ): string {
-  const { hunks } = structuredPatch(path, path, oldContent, newContent, "", "", {
-    context: 3,
-  });
+  const { hunks } = structuredPatch(
+    path,
+    path,
+    oldContent,
+    newContent,
+    "",
+    "",
+    {
+      context: 3,
+    },
+  );
   if (hunks.length === 0) return "";
   const out = [`--- a/${path}`, `+++ b/${path}`];
   for (const h of hunks) {
     out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
-    // Already prefixed with ' ', '-', or '+' by jsdiff.
     out.push(...h.lines);
   }
   return out.join("\n");
 }
 
-// `summary` is what the transcript shows and the model reads back; `diffText`
-// is consumed by the UI's diff renderer.
 type WriteResult = { summary: string; diffText: string };
 
 // Both the approval preview and the actual execution derive from the same plan,
@@ -67,9 +65,7 @@ type WritePlan =
       ok: true;
       abs: string;
       next: string;
-      // Past tense, for the transcript after the write happens.
       summary: string;
-      // Present tense, for the approval popup before it happens.
       proposal: string;
       diffText: string;
     };
@@ -80,8 +76,13 @@ async function planEdit(
   newText: string,
 ): Promise<WritePlan> {
   const abs = insideProject(path);
-  if (!abs) return { ok: false, error: `error: ${path} is outside the project directory` };
-  if (isBlocked(abs)) return { ok: false, error: `error: ${path} is not editable` };
+  if (!abs)
+    return {
+      ok: false,
+      error: `error: ${path} is outside the project directory`,
+    };
+  if (isBlocked(abs))
+    return { ok: false, error: `error: ${path} is not editable` };
   if (oldText === "") {
     return {
       ok: false,
@@ -117,7 +118,8 @@ async function planEdit(
   const oldLines = oldText.split("\n");
   const newLines = newText === "" ? [] : newText.split("\n");
   const change = `(-${oldLines.length} +${newLines.length} at line ${startLine})`;
-  const next = content.slice(0, at) + newText + content.slice(at + oldText.length);
+  const next =
+    content.slice(0, at) + newText + content.slice(at + oldText.length);
   return {
     ok: true,
     abs,
@@ -130,8 +132,13 @@ async function planEdit(
 
 async function planWrite(path: string, content: string): Promise<WritePlan> {
   const abs = insideProject(path);
-  if (!abs) return { ok: false, error: `error: ${path} is outside the project directory` };
-  if (isBlocked(abs)) return { ok: false, error: `error: ${path} is not writable` };
+  if (!abs)
+    return {
+      ok: false,
+      error: `error: ${path} is outside the project directory`,
+    };
+  if (isBlocked(abs))
+    return { ok: false, error: `error: ${path} is not writable` };
   const existed = await Bun.file(abs).exists();
   // Overwrites diff against what was actually there, so the transcript shows
   // what was lost — not just the new content.
@@ -152,8 +159,7 @@ async function planWrite(path: string, content: string): Promise<WritePlan> {
   };
 }
 
-// Like WritePlan, the preview and the removal derive from the same value.
-// diffText renders the file as all-red so the popup shows what's being lost.
+// Render deletions as all-red so approval shows exactly what will be lost.
 type DeletePlan =
   | { ok: false; error: string }
   | {
@@ -166,8 +172,13 @@ type DeletePlan =
 
 async function planDelete(path: string): Promise<DeletePlan> {
   const abs = insideProject(path);
-  if (!abs) return { ok: false, error: `error: ${path} is outside the project directory` };
-  if (isBlocked(abs)) return { ok: false, error: `error: ${path} is not deletable` };
+  if (!abs)
+    return {
+      ok: false,
+      error: `error: ${path} is outside the project directory`,
+    };
+  if (isBlocked(abs))
+    return { ok: false, error: `error: ${path} is not deletable` };
   let info;
   try {
     info = await stat(abs);
@@ -340,22 +351,17 @@ export const projectTools = {
   }),
 };
 
-// --- Shell tool -------------------------------------------------------------
-// Opt-in: chat.ts merges this in only when the user has enabled shell access.
-// Unlike the file tools it has NO path containment — a shell interprets the
-// whole string, so `cd ..`, `curl | sh`, and reading files outside the project
-// are all reachable. Its entire safety story is the approval popup plus the
-// runtime guards below; it is always gated and never auto-approved.
+// Shell access is uncontained; approval and runtime limits are its only
+// safeguards, so it is always gated and never auto-approved.
 
 // Only the TAIL is kept — build and test tools print errors and summaries last.
 const MAX_OUTPUT_BYTES = 100_000;
 
-// So a hung server or an infinite loop can't wedge the turn forever.
+// Bound commands that never exit.
 const SHELL_TIMEOUT_MS = 120_000;
 
-// Last-resort valve against runaway output (an infinite `yes`): past this many
-// bytes the command is killed, so an endless producer can't accumulate unbounded
-// memory before the timeout fires. Far above any legitimate build log.
+// Kill output past 10 MB so a runaway producer cannot exhaust memory before
+// the timeout.
 const SHELL_MAX_BUFFER = 10_000_000;
 
 // A killed command can leave an orphaned grandchild holding the pipe open (`sh`
@@ -363,9 +369,7 @@ const SHELL_MAX_BUFFER = 10_000_000;
 // would block until that grandchild exits too, making Escape feel unresponsive.
 const DRAIN_GRACE_MS = 150;
 
-// Calls onOverflow past `cap` (used to kill a runaway producer). `cancel`
-// force-stops a read blocked waiting on EOF. Never throws: a cancelled or
-// errored read resolves with whatever it has.
+// cancel breaks reads held open by descendants; failures return partial output.
 function readPipe(
   stream: ReadableStream<Uint8Array>,
   cap: number,
@@ -423,8 +427,7 @@ function tailClamp(
   };
 }
 
-// An object so the model reads structured output and describeToolEvent can build
-// a label from it. A non-zero exitCode is a normal outcome, not an error.
+// A non-zero exit code is a normal result, not a tool error.
 export type ShellResult = {
   command: string;
   // null when killed by a signal rather than exiting on its own.
@@ -465,7 +468,7 @@ export const shellTools = {
           stdin: "ignore", // never block waiting on interactive input
           stdout: "pipe",
           stderr: "pipe",
-          signal: abortSignal, // Escape/cancel kills the child too
+          signal: abortSignal,
           timeout: SHELL_TIMEOUT_MS,
           killSignal: "SIGKILL",
         });
@@ -487,8 +490,8 @@ export const shellTools = {
         await Promise.all([out.done, err.done]);
         const outClamped = tailClamp(out.text(), MAX_OUTPUT_BYTES);
         const errClamped = tailClamp(err.text(), MAX_OUTPUT_BYTES);
-        // exitCode is null when killed by a signal. An abort is the user
-        // cancelling; any other signal-kill here is the timeout or output cap.
+        // Signal exits have no code; user aborts are separate, while timeout and
+        // output-cap kills currently report timedOut.
         const aborted = abortSignal?.aborted ?? false;
         const timedOut = proc.exitCode === null && !aborted;
         return {
@@ -511,13 +514,7 @@ export const shellTools = {
   }),
 };
 
-// --- Interactive tools ------------------------------------------------------
-// These reach back into the running app rather than only touching disk, so they
-// can't be static like the file tools — a factory closes over the injected
-// handlers. A handler left out simply omits its tool, the fail-soft path for a
-// headless embedder that doesn't wire them.
-
-// `options` are selectable labels; `allowInput` also offers free text.
+// Close over live handlers; omitted dependencies omit their tools for headless callers.
 export type AskUserRequest = {
   question: string;
   options: string[];
@@ -570,7 +567,11 @@ export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
         if (opts.length === 0 && !allow) {
           return "error: provide at least one option, or set allowInput to accept free text";
         }
-        return await onAskUser({ question: q, options: opts, allowInput: allow });
+        return await onAskUser({
+          question: q,
+          options: opts,
+          allowInput: allow,
+        });
       },
     });
   }
@@ -602,7 +603,9 @@ export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
           return `error: instructions are too long (max ${MAX_SKILL_INSTRUCTIONS} characters)`;
         }
         try {
-          const existed = skillActions.list().some((s) => s.name === normalized);
+          const existed = skillActions
+            .list()
+            .some((s) => s.name === normalized);
           await skillActions.save({ name: normalized, instructions: body });
           const summary = `${existed ? "updated" : "created"} skill @${normalized}`;
           const result: { summary: string } = { summary };
@@ -622,7 +625,8 @@ export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
         name: z.string().describe("The skill handle to delete, e.g. 'review'"),
       }),
       execute: async ({ name }) => {
-        const normalized = normalizeSkillName(name) ?? name.trim().toLowerCase();
+        const normalized =
+          normalizeSkillName(name) ?? name.trim().toLowerCase();
         try {
           const removed = await skillActions.remove(normalized);
           if (!removed) return `error: no skill named @${normalized}`;
@@ -641,9 +645,7 @@ export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
   return tools;
 }
 
-// Returns null when there's nothing meaningful to preview: non-write tools,
-// malformed input, or a plan that fails validation — that call is doomed to
-// return its error string without touching disk, so there's nothing to approve.
+// Invalid or non-mutating calls need no approval preview.
 export async function previewToolCall(
   toolName: string,
   input: unknown,
@@ -693,13 +695,13 @@ export async function previewToolCall(
     };
   }
   if (toolName === "deleteSkill" && typeof i?.name === "string") {
-    const normalized = normalizeSkillName(i.name) ?? i.name.trim().toLowerCase();
+    const normalized =
+      normalizeSkillName(i.name) ?? i.name.trim().toLowerCase();
     return normalized ? { label: `delete skill @${normalized}` } : null;
   }
   return null;
 }
 
-// One tool-loop event from streamChat's fullStream.
 export type ToolEvent = {
   phase: "result" | "error";
   tool: string;
@@ -750,7 +752,6 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
     }
     case "saveSkill":
     case "deleteSkill": {
-      // Both return { summary } in past tense, ready for the transcript.
       const out = evt.output as { summary?: unknown } | null;
       if (out && typeof out.summary === "string") return { label: out.summary };
       return { label: evt.tool };

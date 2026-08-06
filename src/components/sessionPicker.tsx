@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { Session } from "../session";
 import { useTheme } from "./themeContext";
+import "./overlayBox";
 
 type SessionPickerProps = {
   sessions: Session[];
@@ -9,7 +10,6 @@ type SessionPickerProps = {
   onDismiss: () => void;
 };
 
-// Window the list around the selection so a long history scrolls.
 const MAX_VISIBLE = 8;
 
 function formatAge(timestamp: number): string {
@@ -30,7 +30,6 @@ export default function SessionPicker({
   const [selected, setSelected] = useState(0);
   const total = sessions.length;
 
-  // preventDefault keeps these keys away from the (unfocused) input below.
   useKeyboard((key) => {
     switch (key.name) {
       case "up":
@@ -72,7 +71,7 @@ export default function SessionPicker({
   const hiddenBelow = total - (start + visible.length);
 
   return (
-    <box
+    <overlay-box
       border
       borderColor={t.border}
       backgroundColor={t.panelBg}
@@ -109,6 +108,6 @@ export default function SessionPicker({
         );
       })}
       {hiddenBelow > 0 && <text fg={t.textFaint}> ↓ {hiddenBelow} more</text>}
-    </box>
+    </overlay-box>
   );
 }

@@ -1,14 +1,5 @@
-// The SDK's auth() orchestrates discovery, dynamic client registration, and
-// PKCE; this module supplies the storage, browser, and loopback callback.
-//
-// Two providers share one storage, differing only in redirect behaviour:
-//   - startup: redirectToAuthorization THROWS, so a missing/expired token fails
-//     the startup connect cleanly instead of popping a browser before the TUI
-//     has rendered.
-//   - login: opens the browser, with a one-shot loopback to catch the ?code=.
-//
-// Token values are never logged or rendered; the loopback binds localhost only
-// and lives just long enough to catch the one redirect.
+// The SDK owns discovery, dynamic registration, and PKCE; this module supplies
+// persisted credentials, browser launch, and a localhost callback.
 
 import {
   auth,
@@ -102,8 +93,7 @@ class McpOAuthProvider implements OAuthClientProvider {
   }
 }
 
-// The file is user-editable, so a corrupt value reads as "absent" and triggers
-// a fresh login rather than throwing.
+// Malformed JSON reads as absent so the SDK can restart login.
 function parseBlob<T>(raw: string | undefined): T | undefined {
   if (!raw) return undefined;
   try {
@@ -113,23 +103,17 @@ function parseBlob<T>(raw: string | undefined): T | undefined {
   }
 }
 
-// Must never open a browser — the TUI isn't up yet — so it fails fast with a
-// message connectMcpServers turns into a "needs login" warning.
+// Startup must not launch a browser before the TUI exists.
 export function startupAuthProvider(server: string): OAuthClientProvider {
   return new McpOAuthProvider(server, () => {
     throw new Error("authorization required — run /mcp login " + server);
   });
 }
 
-// Lets connectMcpServers skip the attempt entirely when there's clearly
-// nothing to connect with yet.
 export async function hasMcpTokens(server: string): Promise<boolean> {
   return (await readAuthBlob(blobKey(server, "tokens"))) !== undefined;
 }
 
-// Resolves when tokens are stored; rejects on timeout, denied consent, or an
-// exchange failure. The URL is surfaced so the TUI can offer a manual-open
-// fallback.
 export async function loginMcpServer(
   server: string,
   serverUrl: string,
@@ -145,8 +129,6 @@ export async function loginMcpServer(
       openUrl(url.toString());
     });
 
-    // Either we already hold valid tokens (nothing to do) or the SDK builds
-    // the authorize URL and invokes redirectToAuthorization.
     const first = await auth(provider, { serverUrl });
     if (first === "AUTHORIZED") return;
     if (!opened) {
@@ -177,8 +159,7 @@ type CallbackServer = {
   stop: () => void;
 };
 
-// Binds localhost only and tears itself down after the first callback, an
-// error, or the timeout.
+// Bind only to loopback and stop after settlement or timeout.
 function startCallbackServer(timeoutMs: number): CallbackServer {
   let settle!: (value: { code: string }) => void;
   let fail!: (err: Error) => void;
@@ -223,12 +204,9 @@ function startCallbackServer(timeoutMs: number): CallbackServer {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    // Graceful stop, not stop(true): the success page is still flushing when
-    // the code is captured, and closing active connections would reset that
-    // write — the browser would show an error despite a successful login.
+    // Do not force-close while the browser may still be receiving the result page.
     server.stop();
   };
-  // Release the port and timer exactly once.
   const result = pending.finally(stop);
 
   return { result, stop };

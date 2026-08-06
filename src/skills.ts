@@ -1,6 +1,3 @@
-// config.ts owns persistence; this file owns the shape, name rules, @-mention
-// parsing, and the prompt text invoked skills turn into.
-
 export type Skill = {
   name: string;
   instructions: string;
@@ -10,8 +7,7 @@ export const MAX_SKILL_NAME = 40;
 // Bounded so an invoked skill can't blow up the system prompt without limit.
 export const MAX_SKILL_INSTRUCTIONS = 4000;
 
-// The single source of truth for a legal handle — the editor, the model tool,
-// and config parsing all normalize through it, so they can't disagree.
+// Normalize every input path here so UI, tools, and config accept the same handles.
 export function normalizeSkillName(raw: string): string | null {
   const slug = raw
     .trim()
@@ -53,7 +49,6 @@ export function findMentionedSkills(message: string, skills: Skill[]): Skill[] {
   return out;
 }
 
-// Empty string when nothing was invoked, so the caller can append blindly.
 export function buildSkillPrompt(skills: Skill[]): string {
   if (skills.length === 0) return "";
   const blocks = skills.map(
