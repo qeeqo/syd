@@ -1051,6 +1051,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         <ChatMain messages={messages} streaming={isStreaming} model={model} />
         <ChatInputBox
           title={sessionTitle}
+          model={model}
           autoApprove={autoApprove}
           shellEnabled={shellEnabled}
           skills={skills}

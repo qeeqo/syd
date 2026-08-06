@@ -10,6 +10,10 @@ type chatInputBoxProps = {
   // The session name. Rendered as the inverted chip below the input — the only
   // place it appears, so it reads as the one piece of session identity.
   title: string;
+  // Active model id, shown at the left of the indicator row. The banner in
+  // chatMain also shows it, but only while the transcript is empty — this is
+  // the one place it stays visible during a conversation.
+  model: string;
   // Auto-approve mode is on — shown beside the session chip so the current
   // safety posture is always visible, not hidden state.
   autoApprove: boolean;
@@ -52,15 +56,22 @@ function mentionQuery(draft: string): { at: number; query: string } | null {
 // Clamp what's drawn (never the stored title) to keep the row stable.
 const MAX_CHIP_CHARS = 32;
 
+// Same reasoning for the model id, which the picker lets the user type freely
+// and which some providers make genuinely long
+// ("gemini-2.5-flash-native-audio-preview-09-2025").
+const MAX_MODEL_CHARS = 30;
+
+function clamp(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 function clampTitle(title: string): string {
-  const clean = title.trim() || "New Chat";
-  return clean.length > MAX_CHIP_CHARS
-    ? `${clean.slice(0, MAX_CHIP_CHARS - 1)}…`
-    : clean;
+  return clamp(title.trim() || "New Chat", MAX_CHIP_CHARS);
 }
 
 export default function ChatInputBox({
   title,
+  model,
   autoApprove,
   shellEnabled,
   skills,
@@ -193,17 +204,26 @@ export default function ChatInputBox({
           />
         </box>
       </box>
-      <box flexDirection="row" justifyContent="flex-end" gap={1}>
-        {shellEnabled && <text fg={t.success}>⋅shell</text>}
-        {autoApprove && <text fg={t.warning}>⋅auto-approve</text>}
-        {/* Inverted chip: the brightest text colour becomes the fill, the app
-            background the ink. No width is set, so flexbox sizes the box to its
-            content and the block hugs the title exactly; paddingX supplies the
-            one-cell gutter. flexShrink={0} keeps it from being squeezed by the
-            indicators to its left. Theme tokens rather than a literal white so
-            it stays readable on every theme. */}
-        <box backgroundColor={t.textStrong} paddingX={1} flexShrink={0}>
-          <text fg={t.inverseText}>{chipTitle}</text>
+      {/* Indicator row: identity on the left (what syd is about to answer
+          with), posture and session on the right. space-between splits them so
+          neither group's width depends on the other's. The left group shrinks
+          first — a long model id gives ground before the session chip does. */}
+      <box flexDirection="row" justifyContent="space-between" gap={1}>
+        <box flexDirection="row" gap={1} flexShrink={1}>
+          <text fg={t.textDim}>{clamp(model, MAX_MODEL_CHARS)}</text>
+        </box>
+        <box flexDirection="row" gap={1} flexShrink={0}>
+          {shellEnabled && <text fg={t.success}>shell</text>}
+          {autoApprove && <text fg={t.warning}>auto-approve</text>}
+          {/* Inverted chip: the brightest text colour becomes the fill, the
+              app background the ink. No width is set, so flexbox sizes the box
+              to its content and the block hugs the title exactly; paddingX
+              supplies the one-cell gutter. flexShrink={0} keeps it from being
+              squeezed by the indicators to its left. Theme tokens rather than a
+              literal white so it stays readable on every theme. */}
+          <box backgroundColor={t.textStrong} paddingX={1} flexShrink={0}>
+            <text fg={t.inverseText}>{chipTitle}</text>
+          </box>
         </box>
       </box>
     </box>

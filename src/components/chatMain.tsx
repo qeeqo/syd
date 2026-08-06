@@ -4,24 +4,6 @@ import type { Message, SystemTone } from "../commands/type";
 import type { ThemeTokens } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
-// The thinking indicator: a seed sprouting into a plant, one frame per tick.
-// Grows to full size then restarts from the seed.
-const SPROUT_FRAMES = [".", ",", ";", "|", "Y", "ψ"];
-const SPROUT_TICK_MS = 260;
-
-function ThinkingSprout() {
-  const t = useTheme();
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(
-      () => setFrame((f) => (f + 1) % SPROUT_FRAMES.length),
-      SPROUT_TICK_MS,
-    );
-    return () => clearInterval(timer);
-  }, []);
-  return <text fg={t.success}>{SPROUT_FRAMES[frame]}</text>;
-}
-
 // --- glow color helpers -----------------------------------------------------
 // Linearly interpolate between two "#rrggbb" colors so the loader can pulse a
 // smooth ramp of the accent hue (theme tokens are discrete, so we synthesize the
@@ -319,7 +301,6 @@ const MessageBlock = memo(function MessageBlock({
           <text fg={t.accent} attributes={TextAttributes.BOLD}>
             syd
           </text>
-          {streaming && <ThinkingSprout />}
         </box>
         <markdown
           content={message.content}
@@ -333,10 +314,17 @@ const MessageBlock = memo(function MessageBlock({
   }
 
   // User turns are shown verbatim — no markdown parsing on what they typed.
+  //
+  // The tinted band hugs the text rather than spanning the column: the parent
+  // is a stretch-aligned column, so alignSelf="flex-start" is what lets the box
+  // size to its content. maxWidth="100%" keeps a long message wrapping at the
+  // container edge instead of running off it — without the cap, a content-sized
+  // box would try to grow to the full length of an unwrapped line.
   return (
     <box
       flexDirection="row"
-      width="100%"
+      alignSelf="flex-start"
+      maxWidth="100%"
       backgroundColor={t.userBg}
       paddingX={1}
     >

@@ -85,8 +85,6 @@ export type Theme = {
   name: string;
   // Display name shown in the picker.
   label: string;
-  // One-line description / attribution shown under the highlighted theme.
-  blurb: string;
   tokens: ThemeTokens;
 };
 
@@ -94,7 +92,6 @@ export type Theme = {
 const solarizedOsaka: Theme = {
   name: "solarized-osaka",
   label: "Solarized Osaka",
-  blurb: "low-contrast teal dark",
   tokens: {
     appBg: "#002b36", // base03
     transcriptBg: "#00212b", // deeper base for the transcript
@@ -136,7 +133,6 @@ const solarizedOsaka: Theme = {
 const gruvbox: Theme = {
   name: "gruvbox",
   label: "Gruvbox",
-  blurb: "retro warm dark",
   tokens: {
     appBg: "#282828", // bg0
     transcriptBg: "#1d2021", // bg0_h (hard)
@@ -178,7 +174,6 @@ const gruvbox: Theme = {
 const catppuccin: Theme = {
   name: "catppuccin",
   label: "Catppuccin Mocha",
-  blurb: "soft pastel dark",
   tokens: {
     appBg: "#1e1e2e", // base
     transcriptBg: "#11111b", // crust (deepest)
@@ -234,12 +229,15 @@ const catppuccin: Theme = {
 const system: Theme = {
   name: "system",
   label: "System",
-  blurb: "transparent — shows your terminal through",
   tokens: {
     // --- surfaces: the chat area is transparent, which is where blur pays off
     appBg: "transparent",
     transcriptBg: "transparent",
-    userBg: "transparent",
+    // The user's own turn keeps its green tint here too. It marks who said what,
+    // so it has to be visible — and now that the band hugs the text instead of
+    // spanning the column, it covers little enough that the terminal still shows
+    // through everywhere around it.
+    userBg: "#1b3326",
     // Popups and highlighted rows are the deliberate exceptions. A popup draws
     // *over* the transcript; with no fill, the text beneath shows through its
     // text and both become unreadable. A selected row with no fill has no

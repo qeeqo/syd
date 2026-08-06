@@ -85,15 +85,13 @@ export default function ThemePicker({
             paddingX={1}
             backgroundColor={isSelected ? t.selectionBg : undefined}
           >
+            {/* padEnd keeps the selection band the same width on every row —
+                the box is content-sized, so without it the highlight would
+                ragged-edge along the label lengths. */}
             <text fg={isSelected ? t.textSelected : t.accent}>
               {th.name === current ? "● " : "  "}
               {th.label.padEnd(labelWidth, " ")}
             </text>
-            {isSelected && (
-              <text fg={t.textMuted} wrapMode="word">
-                {th.blurb}
-              </text>
-            )}
           </box>
         );
       })}
