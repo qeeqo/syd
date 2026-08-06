@@ -5,6 +5,7 @@ import CommandSuggestions from "./commandSuggestions";
 import MentionSuggestions from "./mentionSuggestions";
 import { useTheme } from "./themeContext";
 import type { Skill } from "../skills";
+import type { ReasoningLevel } from "../reasoning";
 
 type chatInputBoxProps = {
   // The session name. Rendered as the inverted chip below the input — the only
@@ -14,6 +15,9 @@ type chatInputBoxProps = {
   // chatMain also shows it, but only while the transcript is empty — this is
   // the one place it stays visible during a conversation.
   model: string;
+  // Active reasoning level. Rendered only when it isn't "default", so the row
+  // stays quiet unless the user has deliberately changed how hard syd thinks.
+  reasoning: ReasoningLevel;
   // Auto-approve mode is on — shown beside the session chip so the current
   // safety posture is always visible, not hidden state.
   autoApprove: boolean;
@@ -72,6 +76,7 @@ function clampTitle(title: string): string {
 export default function ChatInputBox({
   title,
   model,
+  reasoning,
   autoApprove,
   shellEnabled,
   skills,
@@ -211,6 +216,9 @@ export default function ChatInputBox({
       <box flexDirection="row" justifyContent="space-between" gap={1}>
         <box flexDirection="row" gap={1} flexShrink={1}>
           <text fg={t.textDim}>{clamp(model, MAX_MODEL_CHARS)}</text>
+          {reasoning !== "default" && (
+            <text fg={t.info}>thinking {reasoning}</text>
+          )}
         </box>
         <box flexDirection="row" gap={1} flexShrink={0}>
           {shellEnabled && <text fg={t.success}>shell</text>}

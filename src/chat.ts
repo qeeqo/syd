@@ -21,6 +21,12 @@ import {
   type SkillActions,
 } from "./tools";
 import { buildSkillPrompt, type Skill } from "./skills";
+import {
+  reasoningOptions,
+  mergeProviderOptions,
+  DEFAULT_REASONING_LEVEL,
+  type ReasoningLevel,
+} from "./reasoning";
 import type { ToolNote } from "./commands/type";
 
 // Without this the model tends to answer questions about "the code" from
@@ -109,6 +115,9 @@ export type StreamChatArgs = {
   // Persist/list skills for the saveSkill / deleteSkill tools. Absent → those
   // tools are not offered. These are the same code paths /skills uses.
   skillActions?: SkillActions;
+  // How hard the model should think, on syd's canonical scale. Absent →
+  // "default", which sends no reasoning option at all (see reasoning.ts).
+  reasoning?: ReasoningLevel;
   // Cancels the turn when it fires (user pressed Escape). Aborts the in-flight
   // model call and ends the approval loop; whatever streamed so far is kept.
   abortSignal?: AbortSignal;
@@ -131,6 +140,7 @@ export async function streamChat({
   skills,
   onAskUser,
   skillActions,
+  reasoning = DEFAULT_REASONING_LEVEL,
   abortSignal,
 }: StreamChatArgs) {
   // Refresh OAuth credentials before the first call so resolve() reads a live
@@ -146,10 +156,16 @@ export async function streamChat({
   // store:false (the SDK omits it by default). This provider option is scoped
   // to the OpenAI provider namespace, so it's inert for Google/Anthropic and
   // for the real api.openai.com provider it's a harmless no-persist request.
-  const providerOptions =
+  //
+  // Merged (not overwritten) with the reasoning option, because on the ChatGPT
+  // provider both land in the same `openai` namespace — a plain object spread
+  // at the top level would drop store:false and break every OAuth turn.
+  const providerOptions = mergeProviderOptions(
     providers[provider].auth === "oauth"
       ? { openai: { store: false } }
-      : undefined;
+      : undefined,
+    reasoningOptions(provider, reasoning),
+  );
 
   // The interactive tools (askUser + the skill tools) are built from the
   // callbacks App wired; a missing callback simply omits its tool.

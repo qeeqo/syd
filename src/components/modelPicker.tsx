@@ -3,12 +3,19 @@ import { useKeyboard } from "@opentui/react";
 import { fetchModels, type FetchModelsResult } from "../models";
 import { useTheme } from "./themeContext";
 import type { Provider } from "../providers";
+import type { ReasoningLevel } from "../reasoning";
 
 type ModelPickerProps = {
   provider: Provider;
   current: string;
   onSelect: (model: string) => void;
   onSwitchProvider: () => void;
+  // Hop to the reasoning picker (^r) without leaving the /model flow — App
+  // reopens this picker when that one closes. Same idea as esc → provider.
+  onSwitchReasoning: () => void;
+  // Current reasoning level, shown in the footer so ^r advertises what it
+  // would change rather than being a hidden keybinding.
+  reasoning: ReasoningLevel;
   // Dismiss the picker straight back to chat — the quick exit that doesn't
   // route through the provider picker / key prompt.
   onClose: () => void;
@@ -23,6 +30,8 @@ export default function ModelPicker({
   current,
   onSelect,
   onSwitchProvider,
+  onSwitchReasoning,
+  reasoning,
   onClose,
 }: ModelPickerProps) {
   const t = useTheme();
@@ -54,6 +63,13 @@ export default function ModelPicker({
   }, [all, filter]);
 
   useKeyboard((key) => {
+    // ^r before the switch: the filter <input> is focused, so a bare letter has
+    // to stay available for type-ahead. A ctrl chord never collides with it.
+    if (key.ctrl && key.name === "r") {
+      key.preventDefault();
+      onSwitchReasoning();
+      return;
+    }
     switch (key.name) {
       case "up":
         key.preventDefault();
@@ -164,9 +180,10 @@ export default function ModelPicker({
       )}
 
       {/* Footer hints — esc is repurposed to hop to the provider picker so
-          the user can change provider without leaving the /model flow. */}
+          the user can change provider without leaving the /model flow, and ^r
+          does the same for the reasoning level. Both return here on close. */}
       <text fg={t.textDim} marginTop={1}>
-        ↵ select ⋅ esc switch provider ⋅ q quit
+        ↵ select ⋅ esc switch provider ⋅ ^r thinking ({reasoning}) ⋅ q quit
       </text>
     </box>
   );

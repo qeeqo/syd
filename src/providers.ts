@@ -48,11 +48,26 @@ export type ApiKeyProvider = BaseProvider & {
   parseModels: (json: unknown) => string[];
 };
 
-// A provider authenticated by ChatGPT OAuth (see oauth.ts). No key to paste
-// and no live list endpoint — the model catalog is a fixed, known family.
+// A provider authenticated by ChatGPT OAuth (see oauth.ts). No key to paste,
+// but it does have a live catalog endpoint — it just isn't the api.openai.com
+// one, and its bearer is a short-lived OAuth token rather than a static key.
 export type OAuthProvider = BaseProvider & {
   auth: "oauth";
+  // Offline/fallback catalog, used when the live list can't be fetched (no
+  // token yet, no network, or the endpoint changing shape under us). Keeps the
+  // picker usable rather than empty; it just won't know about newer models.
   models: string[];
+  // Built at call time, not once at module load: the bearer is an access token
+  // that auth.ts refreshes, so capturing it in a closure at startup would go
+  // stale. Returns null when there is no active token to authenticate with.
+  listRequest: () => { url: string; headers: Record<string, string> } | null;
+  parseModels: (json: unknown) => string[];
+  // Per-model reasoning-effort descriptions, pulled from the same catalog
+  // response. Keyed model → effort → the provider's own wording. syd never
+  // writes these itself; a provider that publishes nothing simply yields {}.
+  parseReasoningDescriptions: (
+    json: unknown,
+  ) => Record<string, Record<string, string>>;
 };
 
 export type Provider = ApiKeyProvider | OAuthProvider;
@@ -142,11 +157,67 @@ export const providers: Record<ProviderId, Provider> = {
     auth: "oauth",
     // ChatGPT accounts accept only a narrow allow-list on the Codex backend —
     // NOT the api.openai.com catalog and NOT the gpt-*-codex ids. The set is
-    // account/plan-dependent and shifts over time, so this is a sensible
-    // default rather than exhaustive; the picker allows typing any id, and a
+    // account/plan-dependent and shifts over time, which is exactly why it is
+    // fetched live (listRequest below) instead of frozen here. This list is
+    // only the offline fallback; the picker also allows typing any id, and a
     // rejected one surfaces the backend's message instead of failing silently.
     defaultModel: "gpt-5.5",
     models: ["gpt-5.5", "gpt-5.4"],
+    // The Codex backend's own catalog. `client_version` is required — omitting
+    // it is a 400, not a default — and it gates which models come back via each
+    // entry's `minimal_client_version`. syd is not the Codex CLI and has no
+    // meaningful version to claim here, so it sends a floor value and filters on
+    // the response's own `visibility` / `supported_in_api` flags instead.
+    //
+    // Undocumented private API: it can change or disappear without notice, so
+    // every consumer of this treats a failure as "fall back to `models`", never
+    // as an error worth interrupting the user over.
+    listRequest: () => {
+      const tok = getActiveChatGPT();
+      if (!tok) return null;
+      return {
+        url: `${CHATGPT_BASE_URL}/models?client_version=0.0.0`,
+        headers: {
+          ...chatgptHeaders(tok.accountId),
+          authorization: `Bearer ${tok.access}`,
+        },
+      };
+    },
+    // { models: [{ slug, visibility, supported_in_api, … }] }. Keep only what
+    // the backend itself marks as user-listable and API-callable: that drops
+    // internal entries like "codex-auto-review" and the "-wm" variants. Order is
+    // preserved (the backend returns them by its own `priority`), so unlike the
+    // key providers this list is deliberately NOT re-sorted.
+    parseModels: (json) =>
+      asRecords((json as { models?: unknown })?.models)
+        .filter(
+          (m) => m.visibility === "list" && m.supported_in_api === true,
+        )
+        .map((m) => (typeof m.slug === "string" ? m.slug : ""))
+        .filter((slug) => slug.length > 0),
+    // Each entry carries `supported_reasoning_levels: [{ effort, description }]`
+    // — the backend's own words for what each effort does on that specific
+    // model. Note this list is a UI hint, not the API's validation set: the
+    // backend accepts `reasoningEffort: "none"` even though no model advertises
+    // a "none" tier, so it must not be used to gate what syd may send.
+    parseReasoningDescriptions: (json) => {
+      const out: Record<string, Record<string, string>> = {};
+      for (const m of asRecords((json as { models?: unknown })?.models)) {
+        if (typeof m.slug !== "string" || m.slug.length === 0) continue;
+        const levels: Record<string, string> = {};
+        for (const level of asRecords(m.supported_reasoning_levels)) {
+          if (
+            typeof level.effort === "string" &&
+            typeof level.description === "string" &&
+            level.description.length > 0
+          ) {
+            levels[level.effort] = level.description;
+          }
+        }
+        if (Object.keys(levels).length > 0) out[m.slug] = levels;
+      }
+      return out;
+    },
     // Point the OpenAI SDK at the ChatGPT backend with the OAuth access token
     // as the bearer and the extra headers the backend requires. getActiveChatGPT
     // is kept current by auth.ts; ensureProviderReady refreshes it before the

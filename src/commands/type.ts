@@ -49,6 +49,9 @@ export type CommandContext = {
   setModel: (model?: string) => void;
   // No id → open the provider picker; id → switch directly (if key is set).
   setProvider: (id?: string) => void;
+  // No level → open the thinking picker; level → set directly. An unknown
+  // level is reported rather than applied.
+  setReasoning: (level?: string) => void;
   // Copy the most recent assistant response to the system clipboard.
   copyLastResponse: () => void | Promise<void>;
   // Set file-edit approval to auto (apply without asking) or manual (default:

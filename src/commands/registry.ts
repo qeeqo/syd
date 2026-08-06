@@ -82,6 +82,14 @@ const theme: Command = {
   run: (_args, ctx) => ctx.showTheme(),
 };
 
+const thinking: Command = {
+  name: "thinking",
+  description: "Set how hard the model reasons (default, off, low, medium, high)",
+  // No arg → open the picker; an arg → set directly, so it stays scriptable
+  // like /model and /provider. App validates the name and reports a bad one.
+  run: (args, ctx) => ctx.setReasoning(args.trim() || undefined),
+};
+
 const mcp: Command = {
   name: "mcp",
   description: "Browse tools from connected MCP servers",
@@ -159,6 +167,8 @@ export const commands: Record<string, Command> = {
   settings: settings,
   skills: skills,
   theme: theme,
+  thinking: thinking,
+  reasoning: thinking,
   mcp: mcp,
   "mcp-reload": mcpReload,
   "mcp-login": mcpLogin,

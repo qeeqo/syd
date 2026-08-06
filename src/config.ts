@@ -26,6 +26,11 @@ import {
   isRetiredThemeName,
   DEFAULT_THEME_NAME,
 } from "./theme.ts";
+import {
+  isReasoningLevel,
+  DEFAULT_REASONING_LEVEL,
+  type ReasoningLevel,
+} from "./reasoning.ts";
 
 const CONFIG_FILE = join(homedir(), ".sydcli", "config.json");
 
@@ -49,6 +54,9 @@ export type Config = {
   // The active color theme's id (see theme.ts). Always a known id — an unknown
   // or missing value resolves to the default at load time.
   theme: string;
+  // How hard the model should think (see reasoning.ts). "default" sends no
+  // reasoning option at all, which is what keeps non-reasoning models working.
+  reasoning: ReasoningLevel;
 };
 
 // Built-in fallbacks, used when the file is absent, corrupt, or partial.
@@ -66,6 +74,7 @@ export function defaultConfig(): Config {
     mcpServers: {},
     skills: [],
     theme: DEFAULT_THEME_NAME,
+    reasoning: DEFAULT_REASONING_LEVEL,
   };
 }
 
@@ -412,6 +421,23 @@ export async function loadConfig(): Promise<{
     }
   }
 
+  // reasoning — one of the canonical levels. An unrecognized value falls back
+  // to "default" (send nothing), which is the safe end of the scale: the worst
+  // case is that a model thinks at its own default rather than a request being
+  // rejected for an effort the provider doesn't know.
+  let reasoning = DEFAULT_REASONING_LEVEL;
+  if (obj.reasoning !== undefined) {
+    if (isReasoningLevel(obj.reasoning)) {
+      reasoning = obj.reasoning;
+    } else {
+      warnings.push(
+        `config: unknown reasoning ${JSON.stringify(
+          obj.reasoning,
+        )} — using ${DEFAULT_REASONING_LEVEL}`,
+      );
+    }
+  }
+
   return {
     config: {
       provider,
@@ -421,6 +447,7 @@ export async function loadConfig(): Promise<{
       mcpServers,
       skills,
       theme,
+      reasoning,
     },
     warnings,
   };
@@ -491,11 +518,13 @@ function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
 export async function saveSettings(patch: {
   autoApprove?: boolean;
   shellEnabled?: boolean;
+  reasoning?: ReasoningLevel;
 }): Promise<void> {
   return withConfigLock(async () => {
     const raw = await readRawConfig();
     if (patch.autoApprove !== undefined) raw.autoApprove = patch.autoApprove;
     if (patch.shellEnabled !== undefined) raw.shellEnabled = patch.shellEnabled;
+    if (patch.reasoning !== undefined) raw.reasoning = patch.reasoning;
     await writeRawConfig(raw);
   });
 }

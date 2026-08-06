@@ -3,21 +3,30 @@ import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import { useTheme } from "./themeContext";
 
-// One toggleable preference shown in the /settings window. `value` is the live
-// state; App owns it and re-passes a fresh list on every toggle, so this popup
-// is fully controlled — it renders whatever App hands it.
-export type SettingItem = {
+// One preference shown in the /settings window. App owns the live state and
+// re-passes a fresh list on every change, so this popup is fully controlled —
+// it renders whatever App hands it.
+//
+// Two shapes, discriminated on `kind`: a plain on/off switch, and a choice that
+// cycles through a fixed set of named values (reasoning level). They render the
+// same way — a right-aligned value column — and answer the same key, so adding
+// the second kind cost the popup no new interaction to learn.
+type SettingBase = {
   key: string;
   label: string;
   // A one-line explanation, shown under the row while it's highlighted.
   description: string;
-  value: boolean;
 };
+
+export type SettingItem =
+  | (SettingBase & { kind: "toggle"; value: boolean })
+  | (SettingBase & { kind: "choice"; value: string; options: readonly string[] });
 
 type SettingsPopupProps = {
   items: SettingItem[];
-  // Flip the setting with this key. App updates state AND persists to
-  // config.json, then re-renders this popup with the new value.
+  // Advance the setting with this key: a toggle flips, a choice steps to its
+  // next option (wrapping). App updates state AND persists to config.json, then
+  // re-renders this popup with the new value.
   onToggle: (key: string) => void;
   onDismiss: () => void;
 };
@@ -88,12 +97,24 @@ export default function SettingsPopup({
                 {item.label.padEnd(labelWidth, " ")}
               </text>
               <text fg={t.textDim}>{"   "}</text>
-              <text
-                fg={item.value ? t.success : t.dangerDim}
-                attributes={TextAttributes.BOLD}
-              >
-                {item.value ? "on" : "off"}
-              </text>
+              {item.kind === "toggle" ? (
+                <text
+                  fg={item.value ? t.success : t.dangerDim}
+                  attributes={TextAttributes.BOLD}
+                >
+                  {item.value ? "on" : "off"}
+                </text>
+              ) : (
+                // A choice reads as its current value, dimmed when it's the
+                // inert one ("default" = send nothing), so an active override is
+                // visually distinct from having never touched the setting.
+                <text
+                  fg={item.value === item.options[0] ? t.textMuted : t.info}
+                  attributes={TextAttributes.BOLD}
+                >
+                  {item.value}
+                </text>
+              )}
             </box>
             {isSelected && item.description.length > 0 && (
               <text fg={t.textMuted} wrapMode="word">
@@ -105,7 +126,7 @@ export default function SettingsPopup({
       })}
 
       <text fg={t.textDim} marginTop={1}>
-        ↑↓ select · ↵ toggle · esc close
+        ↑↓ select · ↵ change · esc close
       </text>
     </box>
   );

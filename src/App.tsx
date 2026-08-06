@@ -18,7 +18,12 @@ import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "./oauth";
 import { copyToClipboard } from "./clipboard";
 import { providers, providerList, isProviderId, hasApiKey } from "./providers";
 import type { Provider, ProviderId } from "./providers";
-import { primeModels } from "./models";
+import { primeModels, reasoningDescriptions } from "./models";
+import {
+  REASONING_LEVELS,
+  isReasoningLevel,
+  type ReasoningLevel,
+} from "./reasoning";
 import { dispatch } from "./commands/registry";
 import { streamChat, type ApprovalRequest } from "./chat";
 import { describeToolEvent } from "./tools";
@@ -43,6 +48,7 @@ import {
 import { resolveTheme } from "./theme";
 import { ThemeProvider } from "./components/themeContext";
 import ThemePicker from "./components/themePicker";
+import ReasoningPicker from "./components/reasoningPicker";
 import { findMentionedSkills, type Skill } from "./skills";
 import type { AskUserRequest } from "./tools";
 import {
@@ -97,6 +103,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // remembers what to revert to if the picker is dismissed after live-previewing.
   const [themeName, setThemeName] = useState(config.theme);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
+  // The /thinking picker. `reasoningFromModelPicker` records that it was opened
+  // with ^r from inside /model, so closing it hands back there instead of to
+  // chat — the same handoff pattern as openModelAfterProvider.
+  const [reasoningPickerOpen, setReasoningPickerOpen] = useState(false);
+  const reasoningFromModelPicker = useRef(false);
   const themeBeforePreview = useRef(config.theme);
   const [approval, setApproval] = useState<{
     request: ApprovalRequest;
@@ -113,6 +124,9 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // to decide whether the shell tool joins the turn's tool set — it never needs
   // to change mid-turn, so plain state (no ref) is enough.
   const [shellEnabled, setShellEnabledState] = useState(config.shellEnabled);
+  // How hard the model should think. Read at submit time and handed to
+  // streamChat, which turns it into the right provider option (reasoning.ts).
+  const [reasoning, setReasoningState] = useState(config.reasoning);
   // Defined skills (@name → instructions). Drives the @ palette and the /skills
   // manager. The ref mirrors the state so the model's skill tools can read the
   // live list mid-turn (setState is async); persist/remove update both.
@@ -157,6 +171,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     skillsOpen ||
     modelPickerOpen ||
     themePickerOpen ||
+    reasoningPickerOpen ||
     approval !== null ||
     askUserReq !== null;
 
@@ -464,6 +479,24 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
       applyProvider(providers[normalized]);
+    },
+    setReasoning: (level) => {
+      // No arg → picker. This is the only entry point that opens it straight
+      // from chat, so it never has a model picker to hand back to.
+      if (!level) {
+        reasoningFromModelPicker.current = false;
+        setReasoningPickerOpen(true);
+        return;
+      }
+      const normalized = level.trim().toLowerCase();
+      if (!isReasoningLevel(normalized)) {
+        ctx.addSystemMessage(
+          `unknown thinking level: ${level} (valid: ${REASONING_LEVELS.join(", ")})`,
+          "error",
+        );
+        return;
+      }
+      applyReasoning(normalized);
     },
     showHelp: () => setHelpOpen(true),
     showSettings: () => setSettingsOpen(true),
@@ -882,6 +915,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         mcpTools: mcp.tools,
         mcpGated: mcp.gated,
         shellEnabled,
+        reasoning,
         skills: invokedSkills,
         onAskUser: requestUserAnswer,
         skillActions,
@@ -958,6 +992,29 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
   }
 
+  // Close the thinking picker, handing back to the model picker when that's
+  // where ^r came from. Clears the flag either way so the next open (e.g. a
+  // bare /thinking) doesn't inherit a stale handoff.
+  function closeReasoningPicker() {
+    const backToModels = reasoningFromModelPicker.current;
+    reasoningFromModelPicker.current = false;
+    setReasoningPickerOpen(false);
+    if (backToModels) setModelPickerOpen(true);
+  }
+
+  // Apply a reasoning level from any entry point (/thinking, its picker, the
+  // /settings row): update live state so the next turn uses it, and persist so
+  // it survives a restart. A save failure is surfaced but doesn't roll back —
+  // the level still applies this session, same as the other settings.
+  function applyReasoning(next: ReasoningLevel, announce = true) {
+    setReasoningState(next);
+    if (announce) ctx.addSystemMessage(`thinking set to ${next}`);
+    void saveSettings({ reasoning: next }).catch((err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      ctx.addSystemMessage(`failed to save settings: ${msg}`, "error");
+    });
+  }
+
   // Flip one setting from the /settings popup: update the live state so the
   // change takes effect immediately, and persist it to config.json so it
   // survives a restart. A save failure is surfaced but doesn't roll back the
@@ -978,6 +1035,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       autoApproveRef.current = next;
       setAutoApproveState(next);
       void saveSettings({ autoApprove: next }).catch(reportSaveError);
+    } else if (key === "reasoning") {
+      // A choice rather than a toggle: step forward through the canonical
+      // scale, wrapping past the end back to "default". No system note here —
+      // the popup row itself shows the new value.
+      const levels = REASONING_LEVELS;
+      const next = levels[(levels.indexOf(reasoning) + 1) % levels.length];
+      applyReasoning(next, false);
     }
   }
 
@@ -985,6 +1049,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // popup always reflects (and re-renders on) the current values.
   const settingItems: SettingItem[] = [
     {
+      kind: "toggle",
       key: "shell",
       label: "Shell commands",
       description:
@@ -993,12 +1058,24 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       value: shellEnabled,
     },
     {
+      kind: "toggle",
       key: "autoApprove",
       label: "Auto-approve edits",
       description:
         "Apply file edits and MCP tool calls without a confirmation popup. " +
         "Shell commands always ask regardless. Off is safer.",
       value: autoApprove,
+    },
+    {
+      kind: "choice",
+      key: "reasoning",
+      label: "Thinking",
+      description:
+        "How hard the model reasons before answering. \"default\" sends no " +
+        "setting at all, letting each model use its own — the only value " +
+        "guaranteed safe on models with no reasoning support.",
+      value: reasoning,
+      options: REASONING_LEVELS,
     },
   ];
 
@@ -1052,6 +1129,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         <ChatInputBox
           title={sessionTitle}
           model={model}
+          reasoning={reasoning}
           autoApprove={autoApprove}
           shellEnabled={shellEnabled}
           skills={skills}
@@ -1257,7 +1335,43 @@ export default function App({ config, configWarnings = [] }: AppProps) {
                 setModelPickerOpen(false);
                 setProviderPickerOpen(true);
               }}
+              reasoning={reasoning}
+              onSwitchReasoning={() => {
+                setModelPickerOpen(false);
+                reasoningFromModelPicker.current = true;
+                setReasoningPickerOpen(true);
+              }}
               onClose={() => setModelPickerOpen(false)}
+            />
+          </box>
+        )}
+        {reasoningPickerOpen && (
+          <box
+            position="absolute"
+            left={0}
+            top={0}
+            width="100%"
+            height="100%"
+            justifyContent="center"
+            alignItems="center"
+          >
+            <ReasoningPicker
+              current={reasoning}
+              returnsToModels={reasoningFromModelPicker.current}
+              // Only what the provider itself publishes for THIS model — the
+              // ChatGPT catalog does, the key providers don't, and syd writes
+              // none of its own. Empty simply means no blurbs are shown.
+              descriptions={reasoningDescriptions(provider, model)}
+              onSelect={(next) => {
+                // Read the handoff flag before closing — closeReasoningPicker
+                // clears it, and it decides whether a note is worth leaving.
+                // Opened from /model: the picker's own footer shows the level,
+                // so a system note would be noise on top of returning there.
+                const announce = !reasoningFromModelPicker.current;
+                closeReasoningPicker();
+                applyReasoning(next, announce);
+              }}
+              onDismiss={closeReasoningPicker}
             />
           </box>
         )}
