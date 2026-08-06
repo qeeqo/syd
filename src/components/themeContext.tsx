@@ -5,16 +5,10 @@ import {
   type ThemeTokens,
 } from "../theme.ts";
 
-// React glue for the pure theme module. Components read the active palette via
-// useTheme() and get back the token set (t.accent, t.danger, …), so a live theme
-// switch in App re-renders the whole tree with new colors — no restart.
-//
-// Kept out of theme.ts on purpose: that module stays React-free so a headless
-// core can import the palettes without pulling in React.
+// Kept out of theme.ts so that module stays React-free for a headless core.
 
-// Seed the context with the resolved default so a component rendered outside a
-// provider (shouldn't happen, but be defensive) still paints instead of crashing
-// on undefined token access.
+// Seeded with the default so a component rendered outside a provider still
+// paints instead of crashing on undefined token access.
 const ThemeContext = createContext<ThemeTokens>(
   resolveTheme(DEFAULT_THEME_NAME).tokens,
 );
@@ -31,7 +25,6 @@ export function ThemeProvider({
   );
 }
 
-// The single accessor every component uses. Returns the active theme's tokens.
 export function useTheme(): ThemeTokens {
   return useContext(ThemeContext);
 }

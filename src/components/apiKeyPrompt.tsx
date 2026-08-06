@@ -6,9 +6,8 @@ import type { Provider } from "../providers";
 
 type ApiKeyPromptProps = {
   provider: Provider;
-  // Called with a validated, trimmed key. Resolves to null on success
-  // (parent closes the prompt) or an error message to show inline — the
-  // prompt stays open so the user can fix the paste and retry.
+  // Resolves to null on success, or an error to show inline — the prompt stays
+  // open so the user can fix the paste and retry.
   onSubmit: (key: string) => Promise<string | null>;
   onCancel: () => void;
 };
@@ -19,13 +18,12 @@ export default function ApiKeyPrompt({
   onCancel,
 }: ApiKeyPromptProps) {
   const t = useTheme();
-  // The input's text renders in the popup background color so the pasted key is
-  // invisible on screen (OpenTUI has no native masked input). Sourced from the
-  // active theme so masking holds under any palette.
+  // Renders the text in the popup background colour so the pasted key is
+  // invisible: OpenTUI has no native masked input. From the theme, so masking
+  // holds under any palette.
   const BG = t.panelBg;
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
-  // True while the key is being verified against the provider's API.
   const [verifying, setVerifying] = useState(false);
 
   useKeyboard((key) => {
@@ -51,7 +49,7 @@ export default function ApiKeyPrompt({
       setError(failure);
       return;
     }
-    // Success: parent unmounts us; the secret dies with this component.
+    // Parent unmounts us; the secret dies with this component.
   }
 
   return (
@@ -67,7 +65,7 @@ export default function ApiKeyPrompt({
       minWidth={56}
     >
       <text fg={t.textSecondary}>Paste your API key. Input is hidden.</text>
-      {/* The real input: mounted and focused so typing/paste lands here, but
+      {/* Mounted and focused so typing/paste lands here, but
           text + cursor colors match the popup background — nothing shows. */}
       <input
         value={draft}
@@ -82,7 +80,7 @@ export default function ApiKeyPrompt({
         }}
         onSubmit={handleSubmit}
       />
-      {/* Visible feedback: bullets + length, never the key itself. */}
+      {/* Bullets + length, never the key itself. */}
       <text fg={t.accent}>
         {draft.length > 0
           ? `${"•".repeat(Math.min(draft.length, 40))}  (${draft.length} chars)`

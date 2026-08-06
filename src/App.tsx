@@ -61,16 +61,11 @@ import {
 import { loginMcpServer } from "./mcpOAuth";
 import type { CommandContext, Message } from "./commands/type";
 
-// How often buffered stream tokens are committed to the transcript (~30fps).
-// Tokens arrive faster than this; coalescing them to a steady frame cadence
-// keeps the markdown re-parse and sticky-scroll re-pin from firing per token,
-// which is what made long, fast replies lag and jump. Small enough that text
-// still reads as live streaming.
+// Committing per token re-parses the markdown and re-pins the sticky scroll on
+// every token, which makes long replies lag and jump. Coalesce to ~30fps.
 const DELTA_FLUSH_MS = 33;
 
 type AppProps = {
-  // Resolved startup config (from ~/.sydcli/config.json, defaults filled in)
-  // and any warnings from parsing it, surfaced as opening system messages.
   config: Config;
   configWarnings?: string[];
 };
@@ -78,14 +73,12 @@ type AppProps = {
 export default function App({ config, configWarnings = [] }: AppProps) {
   const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
-  // Seed the transcript with any config-parse warnings so a bad config.json is
-  // visible on launch. The MCP connect runs silently in the background (see the
-  // effect below) — no "connecting…" line — so a clean startup keeps the home
-  // banner (chatMain shows it only while messages is empty) instead of MCP
-  // status chatter. These are system messages, so the save effect ignores them:
-  // a warning alone never writes a session file.
   const [messages, setMessages] = useState<Message[]>(() =>
-    configWarnings.map((content) => ({ role: "system", content, tone: "warn" })),
+    configWarnings.map((content) => ({
+      role: "system",
+      content,
+      tone: "warn",
+    })),
   );
   const [provider, setProvider] = useState<ProviderId>(config.provider);
   const [model, setModel] = useState(config.model);
@@ -98,14 +91,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  // Active color theme id (see theme.ts). Drives the whole UI's palette via the
-  // ThemeProvider below. `themePickerOpen` shows the picker; `themeBeforePreview`
-  // remembers what to revert to if the picker is dismissed after live-previewing.
   const [themeName, setThemeName] = useState(config.theme);
   const [themePickerOpen, setThemePickerOpen] = useState(false);
-  // The /thinking picker. `reasoningFromModelPicker` records that it was opened
-  // with ^r from inside /model, so closing it hands back there instead of to
-  // chat — the same handoff pattern as openModelAfterProvider.
   const [reasoningPickerOpen, setReasoningPickerOpen] = useState(false);
   const reasoningFromModelPicker = useRef(false);
   const themeBeforePreview = useRef(config.theme);
@@ -113,54 +100,30 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     request: ApprovalRequest;
     resolve: (approved: boolean) => void;
   } | null>(null);
-  // Approval mode. Default manual (confirm each write) — the diff preview is
-  // what guards against wrong-file / oversized edits. The ref mirrors the
-  // state so the streaming closure reads the live value even if the mode is
-  // toggled mid-turn; the state drives the input-box indicator.
+  // The ref mirrors the state so the streaming approval closure reads the live
+  // value even when the mode is toggled mid-turn.
   const [autoApprove, setAutoApproveState] = useState(config.autoApprove);
   const autoApproveRef = useRef(config.autoApprove);
-  // Whether syd may run shell commands (the runCommand tool). Off by default;
-  // toggled in /settings, which persists it to config.json. Read at submit time
-  // to decide whether the shell tool joins the turn's tool set — it never needs
-  // to change mid-turn, so plain state (no ref) is enough.
   const [shellEnabled, setShellEnabledState] = useState(config.shellEnabled);
-  // How hard the model should think. Read at submit time and handed to
-  // streamChat, which turns it into the right provider option (reasoning.ts).
   const [reasoning, setReasoningState] = useState(config.reasoning);
-  // Defined skills (@name → instructions). Drives the @ palette and the /skills
-  // manager. The ref mirrors the state so the model's skill tools can read the
-  // live list mid-turn (setState is async); persist/remove update both.
+  // The ref mirrors the state so a skill tool sees edits made earlier in the
+  // same turn (setState is async).
   const [skills, setSkills] = useState<Skill[]>(config.skills);
   const skillsRef = useRef<Skill[]>(config.skills);
-  // A model-driven askUser question awaiting the user's answer. The resolver is
-  // kept in a ref (not state) so the turn's finally can settle a still-pending
-  // question without a second render or a double-resolve.
+  // The resolver is a ref, not state, so the turn's finally can settle a
+  // still-pending question without a second render or a double-resolve.
   const [askUserReq, setAskUserReq] = useState<AskUserRequest | null>(null);
   const askUserResolve = useRef<((answer: string) => void) | null>(null);
-  // The live MCP runtime (tools/gated/clients) and the server config that
-  // produced it. Starts empty and is filled by the background connect on mount
-  // (see below); /mcp reload replaces it wholesale — so buildMcpViews,
-  // streamChat, and exit always read the current set, not a stale snapshot.
   const [mcp, setMcp] = useState<McpRuntime>(emptyMcpRuntime);
   const [mcpServers, setMcpServers] = useState(config.mcpServers);
-  // Guards /mcp reload | login against overlapping runs (each closes and
-  // reconnects clients; two at once would race the client list).
+  // Two concurrent reload/login runs would race the client list.
   const mcpBusy = useRef(false);
-  // Set while a turn is streaming so Escape can abort it (see the useKeyboard
-  // handler below); cleared when the turn settles.
   const abortRef = useRef<AbortController | null>(null);
-  // Streamed tokens are coalesced here and flushed on a frame-paced timer,
-  // not committed one-per-token. Every commit re-lexes the growing trailing
-  // markdown block and re-pins the sticky scroll, so a per-token cadence makes
-  // long, fast replies lag and jump as blocks reflow. `pendingDelta` holds the
-  // text accumulated since the last flush; `flushHandle` is the scheduled timer
-  // (null when nothing is pending).
   const pendingDelta = useRef("");
   const flushHandle = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // True while any popup owns the keyboard. Drives both the input's focus (it
-  // must not swallow keys meant for the popup) and the Escape-to-cancel gate
-  // (Escape belongs to an open popup, not to turn cancellation).
+  // Gates both the input's focus and Escape-to-cancel: an open popup owns the
+  // keyboard, and its own Escape must win over turn cancellation.
   const overlayOpen =
     pickerSessions !== null ||
     providerPickerOpen ||
@@ -175,9 +138,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     approval !== null ||
     askUserReq !== null;
 
-  // Escape cancels an in-flight turn. Global keypress handler (fires even while
-  // the input is focused), gated so it only acts mid-stream and only when no
-  // popup is open — an open popup's own Escape handles dismissal/denial.
   useKeyboard((key) => {
     if (key.name === "escape" && isStreaming && !overlayOpen) {
       key.preventDefault();
@@ -185,42 +145,33 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
   });
 
-  // Stable per-session metadata (id, cwd, createdAt) that must survive
-  // re-renders without triggering them. Lazily created on first render.
   const metaRef = useRef<Session | null>(null);
   metaRef.current ??= createSession(provider, model);
 
-  // Warm the model cache once at startup for the active provider if its key
-  // is already present (from a prior session) — makes the first /model open
-  // instant. Fire-and-forget; a fetch failure just falls back to on-open.
+  // Warm the model cache so the first /model open is instant. Fire-and-forget;
+  // a failure just falls back to fetching on open.
   useEffect(() => {
     if (hasApiKey(providers[provider])) primeModels(provider);
     // Intentionally run once for the initial provider only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Connect the configured MCP servers in the BACKGROUND, so the UI drew
-  // instantly above instead of waiting on a slow/unreachable server (each
-  // connect can take up to 20s). Status and per-server warnings arrive as
-  // system messages once the connect settles; until then tools are simply
-  // absent. Runs once on mount for the startup server set.
+  // Connect in the background: a slow or unreachable server can take 20s, and
+  // blocking here would hold up the first paint.
   useEffect(() => {
     const names = Object.keys(config.mcpServers);
     if (names.length === 0) return;
     let cancelled = false;
     void connectMcpServers(config.mcpServers).then((runtime) => {
-      // Unmounted (or a double-invoked effect) before the connect settled —
-      // close the now-orphaned clients so no socket/subprocess leaks.
+      // Unmounted before the connect settled — close the orphaned clients so
+      // no socket or subprocess leaks.
       if (cancelled) {
         void closeMcpClients(runtime.clients);
         return;
       }
       setMcp(runtime);
-      // Stay quiet on success — no "MCP ready" note — so the home banner
-      // survives a clean startup. Only genuine problems (a server that failed,
-      // needs login, or a config issue) surface as system messages, since those
-      // are the sole on-screen signal that tools are missing; /mcp shows the
-      // full per-server state on demand.
+      // Quiet on success, so a clean startup keeps the home banner. A warning is
+      // the only on-screen signal that tools are missing.
       if (runtime.warnings.length > 0) {
         setMessages((prev) => [
           ...prev,
@@ -239,19 +190,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // The most recent disk write — /exit awaits it so a save that's still
-  // in flight isn't cut off by process.exit.
   const pendingSave = useRef<Promise<void>>(Promise.resolve());
   // Report a save failure once, not on every retriggered save.
   const saveFailed = useRef(false);
-
-  // True while a provider selection is mid-flight: set when a provider is
-  // chosen from the picker, consumed once that provider is actually active
-  // (which may be after a key-paste detour) to open the model picker. Makes
-  // provider → model one connected flow. Cleared if the user backs out.
+  // Survives the key-paste detour, so provider → model stays one flow.
   const openModelAfterProvider = useRef(false);
 
-  // Assemble the current durable Session from live state + stable metadata.
   function buildSession(msgs: Message[]): Session {
     const meta = metaRef.current!;
     return {
@@ -266,12 +210,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     };
   }
 
-  // Single save point: persist whenever session-shaping state settles.
-  // Only a real conversation is worth a file — command-only activity
-  // (/help, a /rename before any chat) never touches disk, so sessions
-  // without at least one user/assistant message don't litter.
   useEffect(() => {
     if (isStreaming) return;
+    // Command-only activity (/help, a /rename before any chat) isn't worth a
+    // file, so it never touches disk.
     if (!messages.some((m) => m.role !== "system")) return;
     pendingSave.current = saveSession(buildSession(messages))
       .then(() => {
@@ -294,9 +236,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, sessionTitle, provider, model, isStreaming]);
 
-  // Shared gate for the MCP mutating commands: refuse mid-turn (swapping the
-  // tool set would pull tools out from under an in-flight call) or while another
-  // MCP op is running. Returns true when it's safe to proceed.
+  // Swapping the tool set mid-turn would pull tools out from under an in-flight
+  // call.
   function mcpGuard(): boolean {
     if (isStreaming) {
       ctx.addSystemMessage("wait for the current response to finish", "warn");
@@ -309,10 +250,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return true;
   }
 
-  // Close the current MCP clients and reconnect from the freshly-read config,
-  // swapping in the new runtime + server list and surfacing warnings. Shared by
-  // /mcp-reload, /mcp-add, /mcp-remove, and the post-login reconnect. Callers own
-  // the mcpGuard() check and the mcpBusy flag.
+  // Callers own the mcpGuard() check and the mcpBusy flag.
   async function reconnectMcp(): Promise<McpRuntime> {
     const { config: fresh, warnings } = await loadConfig();
     for (const w of warnings) ctx.addSystemMessage(w, "warn");
@@ -324,11 +262,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return next;
   }
 
-  // Persist a skill and reflect it in live state + the ref the model tools read.
-  // Shared by the /skills popup and the saveSkill tool, so tool-driven and
-  // popup-driven edits stay consistent. `previousName` (a rename from the popup)
-  // is removed after the new one lands. skillsRef is the source of truth here so
-  // a follow-up tool call in the same turn sees the change immediately.
   async function persistSkill(
     skill: Skill,
     previousName?: string | null,
@@ -345,16 +278,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     setSkills(next);
   }
 
-  // Delete a skill from disk and live state. Returns false (no change) when it
-  // wasn't defined, so the model tool can report "no such skill".
   async function removeSkill(name: string): Promise<boolean> {
     const removed = await removeSkillFromConfig(name);
-    // Purge from live state whenever the name is present in it, even if disk
-    // reported "not there" (removed === false). Delete is idempotent: the goal
-    // is "skill gone", and if state and disk ever drift (a clobbered write, a
-    // hand-edited config.json) this lets the UI self-heal instead of showing a
-    // row that can never be removed. `removed` still reflects the disk result so
-    // the model tool can honestly say "no such skill".
+    // Purge from live state even when disk reported "not there", so a drift
+    // between the two self-heals instead of leaving an unremovable row.
+    // `removed` still reflects the disk result for the model tool's reply.
     if (skillsRef.current.some((s) => s.name === name)) {
       const next = skillsRef.current.filter((s) => s.name !== name);
       skillsRef.current = next;
@@ -363,8 +291,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return removed;
   }
 
-  // Park a model-driven question until the user answers it in the popup. The
-  // resolver lives in a ref so the turn's finally can settle a still-open one.
   function requestUserAnswer(request: AskUserRequest): Promise<string> {
     return new Promise((resolve) => {
       askUserResolve.current = resolve;
@@ -372,9 +298,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // The askUser popup's single exit point (answer or dismiss): close it and
-  // resolve the paused tool so the turn continues. Safe to call with nothing
-  // pending (the ref guards the resolve).
   function settleUserAnswer(answer: string) {
     const resolve = askUserResolve.current;
     askUserResolve.current = null;
@@ -382,9 +305,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     resolve?.(answer);
   }
 
-  // The skill operations handed to the model's saveSkill/deleteSkill tools —
-  // the same code paths /skills uses. `list` reads the live ref so a tool sees
-  // edits made earlier in the same turn.
   const skillActions = {
     save: (skill: Skill) => persistSkill(skill),
     remove: (name: string) => removeSkill(name),
@@ -395,15 +315,14 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     addSystemMessage: (text, tone) =>
       setMessages((prev) => [...prev, { role: "system", content: text, tone }]),
     newSession: () => {
-      // Swapping messages out mid-stream would let in-flight deltas append
-      // onto the wrong transcript — refuse until the turn settles.
+      // In-flight deltas would append onto the wrong transcript.
       if (isStreaming) {
         ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
       }
       setSessionTitle("New Chat");
       setMessages([]);
-      // New conversation → new id/timestamps, so it saves to a fresh file.
+      // New id/timestamps, so it saves to a fresh file.
       metaRef.current = createSession(provider, model);
     },
     resumeSession: async (id) => {
@@ -412,11 +331,9 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
 
-      // Hybrid model: only sessions started in THIS directory are offered.
+      // Only sessions started in THIS directory are offered.
       const cwd = process.cwd();
 
-      // No id → open the arrow-key picker popup. An id (or unique prefix)
-      // still works for direct, scriptable resumes.
       if (!id) {
         const sessions = await listSessions(cwd);
         if (sessions.length === 0) {
@@ -449,7 +366,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     },
     setSessionTitle: (title) => setSessionTitle(title),
     setModel: (next) => {
-      // No name → open the live-model picker for the current provider.
       if (!next) {
         setModelPickerOpen(true);
         return;
@@ -463,7 +379,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     },
     toggleAutoApprove: () => ctx.setAutoApprove(!autoApproveRef.current),
     setProvider: (id) => {
-      // No arg → arrow-key picker popup.
       if (!id) {
         setProviderPickerOpen(true);
         return;
@@ -481,8 +396,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       applyProvider(providers[normalized]);
     },
     setReasoning: (level) => {
-      // No arg → picker. This is the only entry point that opens it straight
-      // from chat, so it never has a model picker to hand back to.
       if (!level) {
         reasoningFromModelPicker.current = false;
         setReasoningPickerOpen(true);
@@ -502,8 +415,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     showSettings: () => setSettingsOpen(true),
     showSkills: () => setSkillsOpen(true),
     showTheme: () => {
-      // Remember the current theme so dismissing the picker (which live-previews
-      // as you scroll) reverts cleanly to where we started.
+      // The picker live-previews as you scroll; remember what to revert to.
       themeBeforePreview.current = themeName;
       setThemePickerOpen(true);
     },
@@ -554,8 +466,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       ctx.addSystemMessage(`opening browser to sign in to "${server}"…`);
       try {
         await loginMcpServer(server, cfg.url, (url) => {
-          // Fallback when the browser can't auto-open (SSH, no handler). The
-          // authorize URL carries no secret; PKCE protects the exchange.
+          // Safe to print: no secret in the URL, PKCE protects the exchange.
           ctx.addSystemMessage(`if your browser didn't open, visit:\n${url}`);
         });
         ctx.addSystemMessage(`signed in to "${server}" — reconnecting…`);
@@ -574,8 +485,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
     },
     addMcpServer: async (name, url, oauth) => {
-      // Names key the merged tool set as `<name>__<tool>`, so "__" in a name
-      // would corrupt those keys.
+      // Tools are keyed `<name>__<tool>`, so "__" in a name corrupts the keys.
       if (name.includes("__")) {
         ctx.addSystemMessage('server name cannot contain "__"', "error");
         return;
@@ -659,10 +569,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
       }
-      // The latest response can span several assistant bubbles (text split
-      // around tool calls). Collect every assistant bubble back to the last
-      // user turn and join them, so /copy grabs the whole reply — not just the
-      // final fragment after the last tool call.
+      // One response can span several bubbles (text split around tool calls),
+      // so collect back to the last user turn rather than taking the last one.
       const parts: string[] = [];
       for (let i = messages.length - 1; i >= 0; i--) {
         const m = messages[i];
@@ -687,13 +595,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
     },
     exit: () => {
-      // Let an in-flight session write land before killing the process —
-      // process.exit would otherwise cut it off and lose the last change — then
-      // close MCP clients so their subprocesses don't outlive syd.
       void (async () => {
+        // process.exit would cut off an in-flight save and lose the last change.
         await pendingSave.current.catch(() => {});
-        // Best-effort close, but capped tight — quitting shouldn't wait on a
-        // sluggish server. process.exit reclaims anything still open.
+        // Capped: quitting shouldn't wait on a sluggish server, and process.exit
+        // reclaims anything still open.
         await closeMcpClients(mcp.clients, 1_000);
         renderer.destroy();
         process.exit(0);
@@ -701,26 +607,18 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     },
   };
 
-  // Single place a provider switch happens — shared by the picker popup and
-  // the /provider <id> direct path. No key yet → open the paste prompt; the
-  // switch completes after the key is saved.
   function applyProvider(next: Provider) {
     if (!hasApiKey(next)) {
-      // Detour through the key-paste prompt; the flag persists so the model
-      // picker still opens once the key lands (handleKeySubmit re-applies).
+      // handleKeySubmit re-applies once the key lands.
       setKeyPrompt(next);
       return;
     }
-    // Chosen from the provider picker → continue into the model picker so the
-    // user can pick a model for the provider they just landed on.
     const flowingToModelPicker = openModelAfterProvider.current;
     if (next.id !== provider) {
       setProvider(next.id);
-      // The old provider's model id is meaningless here — adopt the default.
+      // The old provider's model id is meaningless here.
       setModel(next.defaultModel);
-      // Only announce on the direct /provider <id> path. In the picker flow
-      // the model picker opening is the feedback; a line here would just be
-      // noise (and "already on …" for a no-op switch is pure spam), so skip it.
+      // In the picker flow the model picker opening is already the feedback.
       if (!flowingToModelPicker) {
         ctx.addSystemMessage(
           `provider set to ${next.label} (${next.defaultModel})`,
@@ -733,16 +631,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
   }
 
-  // Key pasted into the prompt: verify it against the provider's API first,
-  // then persist (owner-only file + this process's env) and finish the
-  // provider switch. Returns an error string (prompt stays open, shows it
-  // inline) or null on success (prompt closes).
+  // Returns an error string (prompt stays open and shows it) or null on success.
   async function handleKeySubmit(
     target: Provider,
     key: string,
   ): Promise<string | null> {
-    // Only key providers reach this prompt; the guard also narrows the union
-    // so target.envVar below is well-typed.
+    // Also narrows the union so target.envVar below is well-typed.
     if (target.auth !== "api-key") return `${target.label} does not use a key`;
     const verdict = await verifyApiKey(target, key);
     if (verdict === "invalid") {
@@ -754,40 +648,33 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     try {
       await saveApiKey(target.envVar, key);
     } catch (err) {
-      // Never include the key in errors — message is from fs, not the value.
+      // fs message only — never echo the key itself.
       const msg = err instanceof Error ? err.message : String(err);
       return `verified, but saving failed: ${msg}`;
     }
     setKeyPrompt(null);
     ctx.addSystemMessage(`API key verified and saved for ${target.label}`);
-    // The key is now in env — warm the model cache so the /model picker is
-    // instant on first open (this reuses the fetch, not a second round-trip).
     primeModels(target.id);
     applyProvider(target);
     return null;
   }
 
-  // OAuth sibling of handleKeySubmit: run the ChatGPT browser login, persist
-  // the tokens, and finish the provider switch (same model-picker handoff).
-  // Returns an error string (prompt stays open, shows it) or null on success.
+  // Returns an error string (prompt stays open and shows it) or null on success.
   async function handleOAuthLogin(target: Provider): Promise<string | null> {
     try {
       const { url, result } = await startChatGPTLogin();
       openUrl(url);
-      // Fallback for when the browser can't auto-open (SSH, no default handler)
-      // — the authorize URL is safe to show (no secret; PKCE protects it).
+      // Safe to print: no secret in the URL, PKCE protects it.
       ctx.addSystemMessage(`if your browser didn't open, visit:\n${url}`);
       await saveChatGPTTokens(await result);
     } catch (err) {
-      // Never include token values — these come from the flow/fetch, not them.
+      // Flow/fetch message only — never echo token values.
       return err instanceof Error ? err.message : String(err);
     }
     setKeyPrompt(null);
     ctx.addSystemMessage(`signed in to ${target.label}`);
-    // Prove the account can actually run a call before handing off — a wrong
-    // model id or an account without access fails here loudly instead of on
-    // the first prompt. A failure is a warning, not a block: auth succeeded,
-    // and the user can pick a different model in the picker that follows.
+    // Fail loudly here rather than on the user's first prompt. Not a block —
+    // auth succeeded, and they can pick another model in the picker that follows.
     const problem = await verifyChatGPTAccess(target.defaultModel);
     if (problem) {
       ctx.addSystemMessage(
@@ -799,9 +686,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return null;
   }
 
-  // The popup's single exit point: resolve the paused stream, close the
-  // popup, and leave a transcript trace when the change was declined (an
-  // approved change traces itself via the tool-result note).
+  // An approved change traces itself via the tool-result note; a denial doesn't.
   function handleApprovalDecision(approved: boolean) {
     if (!approval) return;
     approval.resolve(approved);
@@ -824,11 +709,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     metaRef.current = session;
   }
 
-  // Commit any buffered stream text to the open assistant bubble and cancel a
-  // pending flush. Called by the flush timer, before any mid-stream insert, and
-  // once at turn settle — so coalescing never drops or reorders text. Appends
-  // to the open assistant bubble, or opens a new one when a tool note is the
-  // last entry (so text after a tool call lands below it, preserving order).
+  // Called by the flush timer, before any mid-stream insert, and once at turn
+  // settle, so coalescing never drops or reorders text.
   function flushDelta() {
     if (flushHandle.current !== null) {
       clearTimeout(flushHandle.current);
@@ -849,14 +731,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // Append a transcript entry (tool note, denial notice) mid-stream in true
-  // chronological order: it lands after whatever the model has said so far,
-  // and a fresh placeholder re-opens below it so subsequent text (and the
-  // thinking sprout) continue underneath — not stacked above. A trailing
-  // *empty* placeholder is dropped first so the note doesn't leave a bare
-  // "syd" header hanging over it.
+  // Keeps mid-stream entries in chronological order: the note lands after what
+  // the model has said so far, and a fresh placeholder re-opens below it so
+  // later text continues underneath rather than stacking above.
   function insertDuringStream(msg: Message) {
-    // Land any buffered text on the current bubble before the note splits it.
+    // Land buffered text on the current bubble before the note splits it.
     flushDelta();
     setMessages((prev) => {
       const last = prev[prev.length - 1];
@@ -871,15 +750,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   async function handleSubmit(message: string) {
     if (dispatch(message, ctx)) return;
 
-    // Skills invoked with @name in this message — their instructions are
-    // injected into the system prompt for this turn only (per-message, not
-    // sticky). Unknown @mentions are ignored (@ is ordinary text).
+    // Injected into the system prompt for this turn only, never sticky.
     const invokedSkills = findMentionedSkills(message, skills);
 
     const userMsg: Message = { role: "user", content: message };
-    // Drop system notes and empty placeholders, then collapse consecutive
-    // assistant bubbles (one turn's text, split around tool notes) back into a
-    // single message — some providers reject same-role runs.
+    // Collapse consecutive assistant bubbles (one turn split around tool notes)
+    // back into one message — some providers reject same-role runs.
     const history = [...messages, userMsg]
       .filter((m) => m.role !== "system" && m.content.length > 0)
       .reduce<Message[]>((acc, m) => {
@@ -901,9 +777,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       { role: "assistant", content: "" },
     ]);
 
-    // The save effect skips while streaming (no per-token writes) and
-    // persists the finished transcript once this flips back to false.
-    // A fresh controller per turn; the Escape handler aborts it.
     const controller = new AbortController();
     abortRef.current = controller;
     setIsStreaming(true);
@@ -921,9 +794,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         skillActions,
         abortSignal: controller.signal,
         onDelta: (delta) => {
-          // Buffer the token and let the frame timer commit it (flushDelta);
-          // committing per token re-parses and re-pins on every token, which is
-          // what made long/fast replies lag and jump.
           pendingDelta.current += delta;
           if (flushHandle.current === null) {
             flushHandle.current = setTimeout(flushDelta, DELTA_FLUSH_MS);
@@ -938,16 +808,9 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           });
         },
         onApprovalRequest: (request) =>
-          // Auto mode: approve immediately, no popup (the change still lands in
-          // the transcript as a diff via onToolEvent). Manual mode: park the
-          // resolver in state; the popup's keypress calls it via
-          // handleApprovalDecision, which un-pauses the stream.
-          //
-          // Shell commands are the one exception: they ALWAYS prompt, even under
-          // auto-approve. Auto-applying a file diff you can see is one thing;
-          // silently running arbitrary shell (no path-containment safety net) is
-          // a far bigger blast radius, so it stays a deliberate, per-command
-          // decision.
+          // runCommand always prompts, even under auto-approve: auto-applying a
+          // diff you can see is one thing, silently running arbitrary shell (no
+          // path containment) is a far bigger blast radius.
           autoApproveRef.current && request.tool !== "runCommand"
             ? Promise.resolve(true)
             : new Promise<boolean>((resolve) => {
@@ -955,9 +818,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
               }),
       });
     } catch (err) {
-      // A cancel can throw an AbortError out of the stream instead of ending
-      // cleanly — that's not a failure to report, so swallow it and let the
-      // finally block leave its "cancelled" note.
+      // A cancel can throw AbortError instead of ending cleanly — not a failure
+      // to report; the finally block leaves the "cancelled" note.
       if (!controller.signal.aborted) {
         const msg = err instanceof Error ? err.message : String(err);
         ctx.addSystemMessage(`error: ${msg}`, "error");
@@ -965,36 +827,30 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     } finally {
       const cancelled = controller.signal.aborted;
       abortRef.current = null;
-      // A question left parked (e.g. the turn errored out while its popup was
-      // open) is settled so its tool promise never dangles and no ghost popup
-      // lingers. Normal answers clear the ref before we reach here.
+      // Settle a question left parked by an errored turn, so its tool promise
+      // never dangles and no ghost popup lingers.
       if (askUserResolve.current) {
         settleUserAnswer("(the question was cancelled)");
       }
-      // Commit any tail buffered since the last flush before the turn settles,
-      // so the finalized transcript (and the streaming=false markdown re-parse)
-      // sees the complete text — nothing is left stranded in the buffer.
+      // Nothing stranded in the buffer when the markdown re-parses.
       flushDelta();
       setIsStreaming(false);
-      // A turn that ended on a tool call (or denial) re-opened an empty
-      // placeholder that would render as a bare "syd" header — drop it.
+      // A turn ending on a tool call re-opened an empty placeholder, which
+      // would render as a bare "syd" header.
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         return last && last.role === "assistant" && last.content.length === 0
           ? prev.slice(0, -1)
           : prev;
       });
-      // Leave a trace so a cancelled turn reads as deliberate, not as output
-      // that mysteriously stopped. Whatever streamed before the cancel is kept.
+      // So a cancelled turn reads as deliberate, not as output that stopped.
       if (cancelled) {
         ctx.addSystemMessage("response cancelled", "warn");
       }
     }
   }
 
-  // Close the thinking picker, handing back to the model picker when that's
-  // where ^r came from. Clears the flag either way so the next open (e.g. a
-  // bare /thinking) doesn't inherit a stale handoff.
+  // Clears the flag either way, so the next open can't inherit a stale handoff.
   function closeReasoningPicker() {
     const backToModels = reasoningFromModelPicker.current;
     reasoningFromModelPicker.current = false;
@@ -1002,10 +858,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     if (backToModels) setModelPickerOpen(true);
   }
 
-  // Apply a reasoning level from any entry point (/thinking, its picker, the
-  // /settings row): update live state so the next turn uses it, and persist so
-  // it survives a restart. A save failure is surfaced but doesn't roll back —
-  // the level still applies this session, same as the other settings.
+  // A save failure is surfaced but doesn't roll back — the level still applies
+  // this session.
   function applyReasoning(next: ReasoningLevel, announce = true) {
     setReasoningState(next);
     if (announce) ctx.addSystemMessage(`thinking set to ${next}`);
@@ -1015,10 +869,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // Flip one setting from the /settings popup: update the live state so the
-  // change takes effect immediately, and persist it to config.json so it
-  // survives a restart. A save failure is surfaced but doesn't roll back the
-  // in-memory toggle — the setting still applies this session.
+  // A save failure is surfaced but doesn't roll back — the setting still
+  // applies this session.
   function toggleSetting(key: string) {
     const reportSaveError = (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1029,24 +881,20 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       setShellEnabledState(next);
       void saveSettings({ shellEnabled: next }).catch(reportSaveError);
     } else if (key === "autoApprove") {
-      // Mirror the state into the ref too, so the streaming approval closure
-      // (which reads autoApproveRef) sees the change even mid-turn.
       const next = !autoApproveRef.current;
       autoApproveRef.current = next;
       setAutoApproveState(next);
       void saveSettings({ autoApprove: next }).catch(reportSaveError);
     } else if (key === "reasoning") {
-      // A choice rather than a toggle: step forward through the canonical
-      // scale, wrapping past the end back to "default". No system note here —
-      // the popup row itself shows the new value.
+      // A choice, not a toggle: step forward through the scale and wrap. No
+      // system note — the popup row already shows the new value.
       const levels = REASONING_LEVELS;
       const next = levels[(levels.indexOf(reasoning) + 1) % levels.length];
       applyReasoning(next, false);
     }
   }
 
-  // The toggleable preferences shown in /settings, built from live state so the
-  // popup always reflects (and re-renders on) the current values.
+  // Built from live state, so the popup re-renders on every change.
   const settingItems: SettingItem[] = [
     {
       kind: "toggle",
@@ -1071,7 +919,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       key: "reasoning",
       label: "Thinking",
       description:
-        "How hard the model reasons before answering. \"default\" sends no " +
+        'How hard the model reasons before answering. "default" sends no ' +
         "setting at all, letting each model use its own — the only value " +
         "guaranteed safe on models with no reasoning support.",
       value: reasoning,
@@ -1079,9 +927,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     },
   ];
 
-  // Assemble the /mcp window's data: every declared server, paired with the
-  // tools that actually connected. Namespaced keys carry the server prefix; the
-  // description is the server-authored one the SDK attached to each tool.
   function buildMcpViews(): McpServerView[] {
     const toolsByServer = new Map<string, McpServerView["tools"]>();
     for (const [key, def] of Object.entries(mcp.tools)) {
@@ -1113,8 +958,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // Resolve the active theme once per render; the provider hands its tokens to
-  // every component via useTheme(), so changing themeName recolors the whole UI.
   const theme = resolveTheme(themeName);
 
   return (
@@ -1133,13 +976,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           autoApprove={autoApprove}
           shellEnabled={shellEnabled}
           skills={skills}
-          // Unfocus while a popup is open so keystrokes can't leak into the
-          // draft; the popup owns the keyboard instead.
           focused={!overlayOpen}
           onSubmit={handleSubmit}
         />
-        {/* Centered overlay: absolute so it floats above the chat without
-          reflowing it, full-screen box centering the popup on both axes. */}
+        {/* Absolute so a popup floats above the chat without reflowing it. */}
         {pickerSessions && (
           <box
             position="absolute"
@@ -1174,12 +1014,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
               current={provider}
               onSelect={(next) => {
                 setProviderPickerOpen(false);
-                // Selecting a provider flows on into the model picker.
                 openModelAfterProvider.current = true;
                 applyProvider(next);
               }}
               onDismiss={() => {
-                // Backing out goes to chat, not on to the model picker.
                 openModelAfterProvider.current = false;
                 setProviderPickerOpen(false);
               }}
@@ -1253,7 +1091,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
               onDelete={(name) => {
                 void removeSkill(name).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
-                  ctx.addSystemMessage(`failed to delete skill: ${msg}`, "error");
+                  ctx.addSystemMessage(
+                    `failed to delete skill: ${msg}`,
+                    "error",
+                  );
                 });
               }}
               onDismiss={() => setSkillsOpen(false)}
@@ -1305,8 +1146,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
                 provider={keyPrompt}
                 onSubmit={(key) => handleKeySubmit(keyPrompt, key)}
                 onCancel={() => {
-                  // Abandoning the paste also abandons the pending model-picker
-                  // handoff — else it fires on the next provider switch.
                   openModelAfterProvider.current = false;
                   setKeyPrompt(null);
                 }}
@@ -1358,15 +1197,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
             <ReasoningPicker
               current={reasoning}
               returnsToModels={reasoningFromModelPicker.current}
-              // Only what the provider itself publishes for THIS model — the
-              // ChatGPT catalog does, the key providers don't, and syd writes
-              // none of its own. Empty simply means no blurbs are shown.
               descriptions={reasoningDescriptions(provider, model)}
               onSelect={(next) => {
-                // Read the handoff flag before closing — closeReasoningPicker
-                // clears it, and it decides whether a note is worth leaving.
-                // Opened from /model: the picker's own footer shows the level,
-                // so a system note would be noise on top of returning there.
                 const announce = !reasoningFromModelPicker.current;
                 closeReasoningPicker();
                 applyReasoning(next, announce);
@@ -1387,20 +1219,16 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           >
             <ThemePicker
               current={themeBeforePreview.current}
-              // Live preview only — repaint the UI without touching disk.
               onHighlight={(name) => setThemeName(name)}
               onSelect={(name) => {
                 setThemePickerOpen(false);
                 setThemeName(name);
-                // Only persist on an explicit choice; a previewed-but-dismissed
-                // theme never reaches config.json.
                 void saveTheme(name).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
                   ctx.addSystemMessage(`failed to save theme: ${msg}`, "error");
                 });
               }}
               onDismiss={() => {
-                // Undo any live preview back to where we opened.
                 setThemeName(themeBeforePreview.current);
                 setThemePickerOpen(false);
               }}
@@ -1420,8 +1248,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
             <ApprovalPrompt
               request={approval.request}
               onDecide={handleApprovalDecision}
-              // "approve all": flip to auto for the rest of the session and
-              // approve this one, so a multi-file change stops interrupting.
               onApproveAll={() => {
                 ctx.setAutoApprove(true);
                 handleApprovalDecision(true);

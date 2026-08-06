@@ -1,20 +1,14 @@
-// OAuth for HTTP MCP servers — pure module, no React, no TUI.
+// The SDK's auth() orchestrates discovery, dynamic client registration, and
+// PKCE; this module supplies the storage, browser, and loopback callback.
 //
-// Many hosted MCP servers (Notion, Linear, …) authenticate with an interactive
-// OAuth login rather than a static token. This wires syd into the AI SDK's MCP
-// OAuth: the SDK's auth() orchestrates discovery, dynamic client registration,
-// and PKCE; this module supplies the storage + browser + loopback callback.
+// Two providers share one storage, differing only in redirect behaviour:
+//   - startup: redirectToAuthorization THROWS, so a missing/expired token fails
+//     the startup connect cleanly instead of popping a browser before the TUI
+//     has rendered.
+//   - login: opens the browser, with a one-shot loopback to catch the ?code=.
 //
-// Two providers, same storage, different redirect behavior:
-//   - startup provider: redirectToAuthorization THROWS, so a server whose token
-//     is missing/expired fails the startup connect cleanly ("needs login")
-//     instead of popping a browser before the TUI has even rendered.
-//   - login provider: redirectToAuthorization opens the browser; the caller
-//     runs a one-shot loopback server to catch the redirect's ?code=.
-//
-// Security invariants mirror auth.ts / oauth.ts: token values are never logged
-// or rendered; the loopback binds localhost only and lives just long enough to
-// catch the one redirect; secrets live in auth.json (0600) via the blob store.
+// Token values are never logged or rendered; the loopback binds localhost only
+// and lives just long enough to catch the one redirect.
 
 import {
   auth,
@@ -31,12 +25,10 @@ const REDIRECT_PORT = 1456;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
 const CALLBACK_PATH = "/callback";
 
-// auth.json key namespace for one server's OAuth state.
 function blobKey(server: string, kind: "tokens" | "client" | "verifier") {
   return `mcp-oauth:${server}:${kind}`;
 }
 
-// Persisted OAuth state for one server, backed by the 0600 auth.json blob store.
 // redirectToAuthorization is injected so the same storage serves both the
 // silent-startup and interactive-login providers.
 class McpOAuthProvider implements OAuthClientProvider {
@@ -110,9 +102,8 @@ class McpOAuthProvider implements OAuthClientProvider {
   }
 }
 
-// Defensive JSON parse of a stored blob (the file is user-editable and could be
-// corrupt) — a bad value reads as "absent", triggering a fresh login rather
-// than throwing.
+// The file is user-editable, so a corrupt value reads as "absent" and triggers
+// a fresh login rather than throwing.
 function parseBlob<T>(raw: string | undefined): T | undefined {
   if (!raw) return undefined;
   try {
@@ -122,27 +113,23 @@ function parseBlob<T>(raw: string | undefined): T | undefined {
   }
 }
 
-// Provider for the startup connect: it must never open a browser (the TUI isn't
-// up yet), so a server needing interactive auth fails fast with this message,
-// which connectMcpServers turns into a "needs login" warning.
+// Must never open a browser — the TUI isn't up yet — so it fails fast with a
+// message connectMcpServers turns into a "needs login" warning.
 export function startupAuthProvider(server: string): OAuthClientProvider {
   return new McpOAuthProvider(server, () => {
     throw new Error("authorization required — run /mcp login " + server);
   });
 }
 
-// Whether a server already has stored OAuth tokens — lets connectMcpServers skip
-// the connect attempt entirely (and its "needs login" path) when there's
-// clearly nothing to connect with yet.
+// Lets connectMcpServers skip the attempt entirely when there's clearly
+// nothing to connect with yet.
 export async function hasMcpTokens(server: string): Promise<boolean> {
   return (await readAuthBlob(blobKey(server, "tokens"))) !== undefined;
 }
 
-// Run the interactive OAuth login for one server: discover + register + PKCE
-// (via the SDK's auth()), open the browser, catch the loopback redirect, and
-// exchange the code for tokens (saved to auth.json). Resolves when tokens are
-// stored; rejects on timeout, a denied consent, or an exchange failure. The URL
-// is also surfaced to the caller so the TUI can show a manual-open fallback.
+// Resolves when tokens are stored; rejects on timeout, denied consent, or an
+// exchange failure. The URL is surfaced so the TUI can offer a manual-open
+// fallback.
 export async function loginMcpServer(
   server: string,
   serverUrl: string,
@@ -158,15 +145,14 @@ export async function loginMcpServer(
       openUrl(url.toString());
     });
 
-    // First call: either we already hold valid tokens (AUTHORIZED, nothing to
-    // do) or the SDK builds the authorize URL and invokes redirectToAuthorization.
+    // Either we already hold valid tokens (nothing to do) or the SDK builds
+    // the authorize URL and invokes redirectToAuthorization.
     const first = await auth(provider, { serverUrl });
     if (first === "AUTHORIZED") return;
     if (!opened) {
       throw new Error("the server did not provide an authorization URL");
     }
 
-    // Wait for the browser to bounce back with the one-time code, then exchange.
     const { code } = await callback.result;
     const second = await auth(provider, {
       serverUrl,
@@ -180,7 +166,6 @@ export async function loginMcpServer(
   }
 }
 
-// Clear a server's stored OAuth state — the /mcp logout path.
 export async function logoutMcpServer(server: string): Promise<void> {
   await deleteAuthBlob(blobKey(server, "tokens"));
   await deleteAuthBlob(blobKey(server, "client"));
@@ -188,14 +173,12 @@ export async function logoutMcpServer(server: string): Promise<void> {
 }
 
 type CallbackServer = {
-  // Resolves with the authorization code once the redirect is caught.
   result: Promise<{ code: string }>;
-  // Idempotent shutdown of the loopback listener.
   stop: () => void;
 };
 
-// One-shot loopback server that captures the OAuth redirect. Binds localhost
-// only and tears itself down after the first callback, an error, or the timeout.
+// Binds localhost only and tears itself down after the first callback, an
+// error, or the timeout.
 function startCallbackServer(timeoutMs: number): CallbackServer {
   let settle!: (value: { code: string }) => void;
   let fail!: (err: Error) => void;
@@ -214,9 +197,8 @@ function startCallbackServer(timeoutMs: number): CallbackServer {
       }
       const err = url.searchParams.get("error");
       if (err) {
-        // OAuth providers put the human-readable reason in error_description
-        // (RFC 6749 §4.1.2.1); include it so a bare code like "access_denied"
-        // isn't the whole story — that detail is what actually explains why.
+        // RFC 6749 §4.1.2.1 puts the human-readable reason here; without it a
+        // bare "access_denied" is the whole story.
         const desc = url.searchParams.get("error_description");
         fail(new Error(`authorization failed: ${desc ? `${err} — ${desc}` : err}`));
         return callbackPage("Login failed. You can close this tab.");
@@ -241,14 +223,12 @@ function startCallbackServer(timeoutMs: number): CallbackServer {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
-    // Graceful stop (not stop(true)): the success/failure page is still being
-    // flushed to the browser when the code is captured and this runs. Closing
-    // active connections here would reset that write mid-flight, so the browser
-    // shows a connection error even though the login succeeded. A graceful stop
-    // lets the in-flight response finish before releasing the port.
+    // Graceful stop, not stop(true): the success page is still flushing when
+    // the code is captured, and closing active connections would reset that
+    // write — the browser would show an error despite a successful login.
     server.stop();
   };
-  // Whatever happens, release the port and timer exactly once.
+  // Release the port and timer exactly once.
   const result = pending.finally(stop);
 
   return { result, stop };

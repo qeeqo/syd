@@ -1,7 +1,3 @@
-// Session persistence — pure disk I/O, no React, no TUI.
-// Deliberately front-end agnostic so the TUI, a future CLI, and a future
-// neovim plugin can all share the same session store.
-
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readdir, rename, unlink } from "node:fs/promises";
@@ -19,13 +15,8 @@ export type Session = {
   updatedAt: number;
 };
 
-// Global store, keyed by cwd inside each file (the "hybrid" model):
-// physical storage is centralized, logical grouping is by project.
 const SESSIONS_DIR = join(homedir(), ".sydcli", "sessions");
 
-// Ids are UUIDs we mint ourselves (crypto.randomUUID). Enforce that shape
-// before an id is ever used in a path, so user-supplied input like
-// "/resume ../../etc" can never escape SESSIONS_DIR.
 const SESSION_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -38,9 +29,6 @@ function filePath(id: string) {
   return join(SESSIONS_DIR, `${id}.json`);
 }
 
-// Runtime guards for data crossing the disk boundary. Files under ~/.sydcli
-// can be hand-edited or half-written, so `as Session` casts aren't safe —
-// a malformed file must fail the load, not crash the renderer later.
 function isMessage(value: unknown): value is Message {
   if (typeof value !== "object" || value === null) return false;
   const m = value as Record<string, unknown>;
@@ -50,20 +38,11 @@ function isMessage(value: unknown): value is Message {
   );
 }
 
-// `tone` is cosmetic (it picks a rule colour), so an unrecognized value from a
-// hand-edited file drops to the neutral default rather than failing the whole
-// session load — losing a transcript over a bad colour hint would be worse.
 function sanitizeMessage(m: Message): Message {
   if (m.tone === undefined || isSystemTone(m.tone)) return m;
-  // JSON.stringify omits undefined-valued keys, so this doesn't reintroduce
-  // the bad field on the next save.
-  return { ...m, tone: undefined };
+  return { ...m, tone: undefined }; // JSON.stringify omits undefined keys
 }
 
-// Validate + normalize a raw disk value into a Session, or null if invalid.
-// `provider` may be absent (files saved before multi-provider support) and
-// defaults to google; a *present but unrecognized* provider fails the parse —
-// silently rerouting a transcript to a different provider would be worse.
 function parseSession(value: unknown): Session | null {
   if (typeof value !== "object" || value === null) return null;
   const s = value as Record<string, unknown>;
@@ -98,8 +77,6 @@ async function ensureDir() {
   await mkdir(SESSIONS_DIR, { recursive: true });
 }
 
-// In-memory factory — does NOT touch disk. A session is only persisted once
-// it has content (see saveSession callers), so we don't litter empty files.
 export function createSession(provider: ProviderId, model: string): Session {
   const now = Date.now();
   return {
@@ -117,16 +94,12 @@ export function createSession(provider: ProviderId, model: string): Session {
 export async function saveSession(session: Session): Promise<void> {
   await ensureDir();
   const toWrite: Session = { ...session, updatedAt: Date.now() };
-  // Write-then-rename: rename within a directory is atomic on POSIX, so a
-  // crash mid-write leaves a stale .tmp behind instead of a corrupt session.
   const target = filePath(session.id);
   const tmp = `${target}.tmp`;
   await Bun.write(tmp, JSON.stringify(toWrite, null, 2));
   await rename(tmp, target);
 }
 
-// Returns null for missing, unreadable, or schema-invalid files — callers
-// treat all three the same way: "that session isn't available".
 export async function loadSession(id: string): Promise<Session | null> {
   if (!isValidSessionId(id)) return null;
   try {
@@ -141,8 +114,6 @@ export async function deleteSession(id: string): Promise<void> {
   await unlink(filePath(id));
 }
 
-// Lists sessions newest-first. Pass a cwd to get the project-scoped view
-// (the "/sessions here" case); omit it for the full global history.
 export async function listSessions(cwd?: string): Promise<Session[]> {
   await ensureDir();
   const entries = await readdir(SESSIONS_DIR);
@@ -157,16 +128,13 @@ export async function listSessions(cwd?: string): Promise<Session[]> {
       if (cwd && session.cwd !== cwd) continue;
       sessions.push(session);
     } catch {
-      // skip unreadable/corrupt files rather than crash the whole list
+      // skip a corrupt file rather than fail the whole list
     }
   }
 
   return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-// Resolve a full id or unique id prefix (git-style short ids) against the
-// sessions visible in `cwd`. Returns all matches so the caller can
-// distinguish not-found (0) from ambiguous (2+).
 export async function findSessionsByIdPrefix(
   prefix: string,
   cwd?: string,

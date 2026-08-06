@@ -1,27 +1,16 @@
-// Reasoning effort — pure module, no React, no TUI.
-// Front-end agnostic like session.ts / skills.ts, so a headless core can reuse
-// it.
-//
-// Every current frontier model can be told to think harder or less hard, but
-// each provider spells it differently: OpenAI takes a named effort, Google
-// takes a named level, Anthropic takes only a token budget. This module owns
-// the single canonical scale syd exposes and the translation into each SDK's
-// providerOptions shape — so chat.ts stays a thin choke point and no UI code
-// ever learns a provider dialect.
+// Owns the one canonical scale syd exposes and its translation into each SDK's
+// dialect, so no UI code ever learns a provider's spelling.
 
 import type { ProviderOptions } from "@ai-sdk/provider-utils";
 import type { ProviderId } from "./providers.ts";
 
-// The canonical scale. Deliberately the intersection of what every provider
-// supports rather than the union: OpenAI also accepts "minimal"/"xhigh"/"max"
-// and the ChatGPT backend adds "ultra", but Google stops at "high" and
-// Anthropic has no named levels at all. Offering a level that silently does
-// nothing on two of four providers would be worse than not offering it.
+// The intersection of what every provider supports, not the union: OpenAI also
+// takes "minimal"/"xhigh"/"max", but Google stops at "high" and Anthropic has no
+// named levels. A level that silently does nothing on half the providers is
+// worse than not offering it.
 //
-// "default" is the important one: it sends no reasoning option at all, leaving
-// each model at whatever its own default is. That's what makes this safe to
-// ship on by default — a model with no reasoning support (gpt-4o,
-// gemini-2.0-flash, claude-3-5) never receives a parameter it would reject.
+// "default" sends no option at all, so a model with no reasoning support never
+// receives a parameter it would reject.
 export type ReasoningLevel = "default" | "off" | "low" | "medium" | "high";
 
 export const REASONING_LEVELS: readonly ReasoningLevel[] = [
@@ -41,30 +30,19 @@ export function isReasoningLevel(value: unknown): value is ReasoningLevel {
   );
 }
 
-// Anthropic is budget-based, so the named levels have to become token counts.
-//
-// The ceiling is the constraint that matters: extended thinking counts toward
-// max_tokens, and the API rejects a budget that meets or exceeds it. The
-// smallest output cap among thinking-capable Claude models is 8192 (Sonnet 3.7
-// without the long-output beta header), so "high" stays just under that rather
-// than at the much larger budget a Sonnet 5 could take. Better to under-ask on
-// one model than to hard-fail the turn on another.
-//
-// 1024 is the API's own minimum for an enabled thinking block, so "low" sits
-// exactly there.
+// Thinking counts toward max_tokens and the API rejects a budget that meets or
+// exceeds it. The smallest output cap among thinking-capable Claude models is
+// 8192, so "high" stays under that rather than at the larger budget a newer
+// model could take — under-asking on one beats hard-failing on another. 1024 is
+// the API's own minimum for an enabled thinking block.
 const ANTHROPIC_BUDGET: Record<"low" | "medium" | "high", number> = {
   low: 1024,
   medium: 4096,
   high: 8000,
 };
 
-// Translate the canonical level into the provider's own option namespace.
-// Returns undefined for "default" (send nothing) so the caller can skip the
-// merge entirely.
-//
-// Note the namespace is keyed by SDK provider, not by syd's ProviderId: both
-// "openai" and "openai-chatgpt" speak the OpenAI dialect, since the ChatGPT
-// backend is the same Responses API behind an OAuth token.
+// The namespace is keyed by SDK dialect, not syd's ProviderId — "openai" and
+// "openai-chatgpt" share one, since ChatGPT is the same Responses API.
 export function reasoningOptions(
   provider: ProviderId,
   level: ReasoningLevel,
@@ -79,7 +57,6 @@ export function reasoningOptions(
 
     case "google":
       // Google has no "off" level — a zero budget is how you disable thinking.
-      // thinkingLevel is the newer named form and is what the 3.x models take.
       return {
         google: {
           thinkingConfig:
@@ -99,10 +76,9 @@ export function reasoningOptions(
   }
 }
 
-// Shallow-merge two providerOptions maps one level deep: namespaces are merged
-// rather than replaced, so `{ openai: { store: false } }` and
-// `{ openai: { reasoningEffort: "high" } }` combine instead of clobbering each
-// other. Later arguments win on a key collision.
+// One level deep, so `{ openai: { store: false } }` and
+// `{ openai: { reasoningEffort: "high" } }` combine instead of clobbering.
+// Later arguments win on a key collision.
 export function mergeProviderOptions(
   ...parts: (ProviderOptions | undefined)[]
 ): ProviderOptions | undefined {

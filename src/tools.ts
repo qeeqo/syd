@@ -1,7 +1,5 @@
-// Local AI tools for the streamText `tools` param — the model requests a
-// call, the SDK validates its arguments against inputSchema, execute runs
-// here, and the result is fed back as a tool-result message. Pure module:
-// no React, no UI imports, so a future headless core can reuse it as-is.
+// The model requests a call, the SDK validates arguments against inputSchema,
+// execute runs here, and the result is fed back as a tool-result message.
 
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
@@ -15,9 +13,8 @@ import {
   type Skill,
 } from "./skills";
 
-// Everything the model touches must stay inside the project. resolve()
-// collapses any ../ segments, so a prefix check on the result is sufficient —
-// checking the raw input string would miss "src/../../secrets".
+// resolve() collapses any ../ segments, so a prefix check on the result is
+// sufficient — checking the raw input string would miss "src/../../secrets".
 function insideProject(path: string): string | null {
   const root = process.cwd();
   const abs = resolve(root, path);
@@ -25,24 +22,21 @@ function insideProject(path: string): string | null {
   return abs;
 }
 
-// Dependency and VCS internals are huge and never what the user is asking
-// about — letting the model wander in burns tokens for nothing.
+// Huge and never what the user is asking about.
 const BLOCKED = new Set(["node_modules", ".git"]);
 
 function isBlocked(abs: string): boolean {
   return abs.split(sep).some((part) => BLOCKED.has(part));
 }
 
-// A whole-file dump bigger than this is almost certainly a lockfile or asset,
-// not source — and it would swamp the context window in one call.
+// Bigger than this is almost certainly a lockfile or asset, not source, and it
+// would swamp the context window in one call.
 const MAX_FILE_BYTES = 200_000;
 
-// Build a unified diff (the ---/+++/@@ format) by comparing the whole old and
-// new file contents. jsdiff's structuredPatch runs a real line diff, so only
-// changed lines are marked -/+ and unchanged neighbours become context — an
-// overwrite that touches one line no longer renders as a full-file churn.
-// Returns "" when nothing changed. The output starts at ---/+++ (jsdiff's own
-// Index/=== header is skipped), matching what OpenTUI's <diff> parses.
+// structuredPatch runs a real line diff, so an overwrite touching one line
+// renders as one line rather than full-file churn. Returns "" when nothing
+// changed. Starts at ---/+++ (jsdiff's Index/=== header is skipped), matching
+// what OpenTUI's <diff> parses.
 function unifiedDiff(
   path: string,
   oldContent: string,
@@ -55,25 +49,23 @@ function unifiedDiff(
   const out = [`--- a/${path}`, `+++ b/${path}`];
   for (const h of hunks) {
     out.push(`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`);
-    // hunk lines are already prefixed with ' ', '-', or '+' by jsdiff.
+    // Already prefixed with ' ', '-', or '+' by jsdiff.
     out.push(...h.lines);
   }
   return out.join("\n");
 }
 
-// Write-tool results are objects: `summary` is what the transcript shows and
-// the model reads back; `diffText` is consumed by the UI's diff renderer.
+// `summary` is what the transcript shows and the model reads back; `diffText`
+// is consumed by the UI's diff renderer.
 type WriteResult = { summary: string; diffText: string };
 
-// A validated-but-not-applied write. Both the approval preview and the
-// actual execution derive from the same plan, so what the user approves is
-// exactly what gets written — the preview can never drift from the effect.
+// Both the approval preview and the actual execution derive from the same plan,
+// so the preview can never drift from the effect.
 type WritePlan =
   | { ok: false; error: string }
   | {
       ok: true;
       abs: string;
-      // The complete file content the plan would leave on disk.
       next: string;
       // Past tense, for the transcript after the write happens.
       summary: string;
@@ -141,8 +133,8 @@ async function planWrite(path: string, content: string): Promise<WritePlan> {
   if (!abs) return { ok: false, error: `error: ${path} is outside the project directory` };
   if (isBlocked(abs)) return { ok: false, error: `error: ${path} is not writable` };
   const existed = await Bun.file(abs).exists();
-  // Overwrites diff against what was actually there, so the transcript
-  // shows what was lost — not just the new content.
+  // Overwrites diff against what was actually there, so the transcript shows
+  // what was lost — not just the new content.
   const oldContent = existed ? await Bun.file(abs).text() : "";
   const oldLines = oldContent === "" ? [] : oldContent.split("\n");
   const newLines = content === "" ? [] : content.split("\n");
@@ -160,10 +152,8 @@ async function planWrite(path: string, content: string): Promise<WritePlan> {
   };
 }
 
-// A validated-but-not-applied delete. Like WritePlan, the approval preview and
-// the actual removal both derive from this, so what the user approves is
-// exactly what gets deleted. diffText renders the file as all-red (its content
-// diffed against empty) so the popup shows what's being lost.
+// Like WritePlan, the preview and the removal derive from the same value.
+// diffText renders the file as all-red so the popup shows what's being lost.
 type DeletePlan =
   | { ok: false; error: string }
   | {
@@ -184,16 +174,15 @@ async function planDelete(path: string): Promise<DeletePlan> {
   } catch {
     return { ok: false, error: `error: ${path} does not exist` };
   }
-  // Only files. A directory delete would be recursive and far more dangerous,
-  // and there's no meaningful single diff to preview for one.
+  // Only files: a directory delete would be recursive, far more dangerous, and
+  // has no meaningful single diff to preview.
   if (!info.isFile()) {
     return {
       ok: false,
       error: `error: ${path} is not a file — deleteFile only removes files`,
     };
   }
-  // Skip the red diff for oversized files (lockfiles, assets): a huge wall of
-  // red helps no one and could swamp the popup. Fall back to a byte count.
+  // A huge wall of red helps no one and could swamp the popup.
   const big = info.size > MAX_FILE_BYTES;
   const oldContent = big ? "" : await Bun.file(abs).text();
   const lineCount = oldContent === "" ? 0 : oldContent.split("\n").length;
@@ -207,9 +196,8 @@ async function planDelete(path: string): Promise<DeletePlan> {
   };
 }
 
-// Tool results are plain strings, including errors. A returned "error: ..."
-// goes back into the loop where the model can read it and self-correct
-// (retry another path, ask the user) — a thrown error would end the turn.
+// A returned "error: ..." goes back into the loop where the model can read it
+// and self-correct; a thrown error would end the turn.
 export const projectTools = {
   listFiles: tool({
     description:
@@ -353,43 +341,31 @@ export const projectTools = {
 };
 
 // --- Shell tool -------------------------------------------------------------
-// A single "run a command" tool, kept separate from projectTools because it is
-// opt-in: chat.ts only merges it into the tool set when the user has enabled
-// shell access in /settings. Unlike the file tools it has NO path-containment
-// safety net — a shell interprets the whole string, so `cd ..`, `curl | sh`,
-// and reading files outside the project are all reachable. Its entire safety
-// story is therefore the approval popup (the exact command is shown) plus the
-// runtime guards below; it is always gated and never covered by auto-approve.
+// Opt-in: chat.ts merges this in only when the user has enabled shell access.
+// Unlike the file tools it has NO path containment — a shell interprets the
+// whole string, so `cd ..`, `curl | sh`, and reading files outside the project
+// are all reachable. Its entire safety story is the approval popup plus the
+// runtime guards below; it is always gated and never auto-approved.
 
-// How much command output is fed back to the model / shown. A long test log
-// shouldn't swamp the context window, so we keep only the TAIL — build and test
-// tools print their errors and summaries last.
+// Only the TAIL is kept — build and test tools print errors and summaries last.
 const MAX_OUTPUT_BYTES = 100_000;
 
-// Hard ceiling on run time. A hung server or an accidental infinite loop can't
-// wedge the turn forever — the child is killed once this elapses.
+// So a hung server or an infinite loop can't wedge the turn forever.
 const SHELL_TIMEOUT_MS = 120_000;
 
-// Last-resort valve against runaway output (e.g. an infinite `yes`): once a
-// command emits this many bytes we kill it (see readPipe's overflow path), so
-// an endless producer can't accumulate unbounded memory before the timeout
-// fires. Far above any legitimate build or test log, so normal runs are
-// untouched — only genuinely unbounded ones die.
+// Last-resort valve against runaway output (an infinite `yes`): past this many
+// bytes the command is killed, so an endless producer can't accumulate unbounded
+// memory before the timeout fires. Far above any legitimate build log.
 const SHELL_MAX_BUFFER = 10_000_000;
 
-// How long, after the process exits, we keep draining its pipes before forcing
-// them closed. A killed command can leave an orphaned grandchild holding the
-// pipe open (e.g. `sh` is killed but its `sleep` child lingers); without this
-// grace-then-cancel the read would block until that grandchild also exits,
-// making Escape feel unresponsive. Long enough to catch a fast child's final
-// buffered bytes, short enough that cancellation is effectively immediate.
+// A killed command can leave an orphaned grandchild holding the pipe open (`sh`
+// dies but its `sleep` child lingers). Without this grace-then-cancel the read
+// would block until that grandchild exits too, making Escape feel unresponsive.
 const DRAIN_GRACE_MS = 150;
 
-// Read a process pipe into byte chunks until EOF, cancellation, or the running
-// total exceeds `cap` — at which point it calls onOverflow (used to kill a
-// runaway producer) and stops. Returns a handle whose `done` promise settles
-// when reading finishes and whose `cancel` force-stops a read that's blocked
-// waiting on EOF. Never throws: a cancelled/errored read resolves what it has.
+// Calls onOverflow past `cap` (used to kill a runaway producer). `cancel`
+// force-stops a read blocked waiting on EOF. Never throws: a cancelled or
+// errored read resolves with whatever it has.
 function readPipe(
   stream: ReadableStream<Uint8Array>,
   cap: number,
@@ -412,7 +388,7 @@ function readPipe(
         }
       }
     } catch {
-      // Cancelled or the stream errored — keep whatever we collected.
+      // Cancelled or errored — keep whatever we collected.
     } finally {
       reader.releaseLock();
     }
@@ -434,9 +410,8 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
-// Keep only the last `max` characters, marking the cut so the model knows text
-// was dropped. Length is a close-enough proxy for bytes here — this is a safety
-// cap, not an exact budget.
+// Length is a close-enough proxy for bytes — this is a safety cap, not an
+// exact budget.
 function tailClamp(
   text: string,
   max: number,
@@ -448,13 +423,11 @@ function tailClamp(
   };
 }
 
-// The result of a runCommand call. Returned as an object (like WriteResult) so
-// the model reads structured output and describeToolEvent can build a transcript
-// label from it. A non-zero exitCode is a normal outcome, not an error.
+// An object so the model reads structured output and describeToolEvent can build
+// a label from it. A non-zero exitCode is a normal outcome, not an error.
 export type ShellResult = {
   command: string;
-  // null when the process was killed by a signal (timeout / abort / maxBuffer)
-  // rather than exiting on its own.
+  // null when killed by a signal rather than exiting on its own.
   exitCode: number | null;
   timedOut: boolean;
   aborted: boolean;
@@ -496,17 +469,14 @@ export const shellTools = {
           timeout: SHELL_TIMEOUT_MS,
           killSignal: "SIGKILL",
         });
-        // Drain both pipes concurrently so a child that fills a pipe buffer can
-        // keep writing (reading only after exit would deadlock on large output).
-        // A running total over SHELL_MAX_BUFFER kills a runaway producer — the
-        // portable guard, not relying on the spawn-level maxBuffer option.
+        // Drained concurrently so a child filling a pipe buffer can keep
+        // writing — reading only after exit would deadlock on large output.
+        // The running-total kill is the portable guard, not spawn's maxBuffer.
         const kill = () => proc.kill("SIGKILL");
         const out = readPipe(proc.stdout, SHELL_MAX_BUFFER, kill);
         const err = readPipe(proc.stderr, SHELL_MAX_BUFFER, kill);
-        // Wait for the process itself, not for pipe EOF: an orphaned grandchild
-        // can hold the pipe open past the child's death. After exit we give the
-        // pipes a brief grace to flush, then force the readers closed so a
-        // lingering grandchild can never wedge the turn.
+        // Wait for the process, not pipe EOF: an orphaned grandchild can hold
+        // the pipe open past the child's death. Grace, then force closed.
         await proc.exited;
         await Promise.race([
           Promise.all([out.done, err.done]),
@@ -517,9 +487,8 @@ export const shellTools = {
         await Promise.all([out.done, err.done]);
         const outClamped = tailClamp(out.text(), MAX_OUTPUT_BYTES);
         const errClamped = tailClamp(err.text(), MAX_OUTPUT_BYTES);
-        // exitCode is null when the process was killed by a signal. An abort is
-        // the user cancelling; otherwise a signal-kill here means the timeout
-        // (or the output-cap kill) fired.
+        // exitCode is null when killed by a signal. An abort is the user
+        // cancelling; any other signal-kill here is the timeout or output cap.
         const aborted = abortSignal?.aborted ?? false;
         const timedOut = proc.exitCode === null && !aborted;
         return {
@@ -532,8 +501,8 @@ export const shellTools = {
           stderr: errClamped.text,
         };
       } catch (err) {
-        // A pre-aborted signal makes spawn throw — report it as a clean cancel
-        // rather than a tool failure.
+        // A pre-aborted signal makes spawn throw — a clean cancel, not a
+        // tool failure.
         if (abortSignal?.aborted) return "error: command cancelled";
         const msg = err instanceof Error ? err.message : String(err);
         return `error: ${msg}`;
@@ -543,28 +512,19 @@ export const shellTools = {
 };
 
 // --- Interactive tools ------------------------------------------------------
-// Tools that reach back into the running app rather than only touching disk:
-// `askUser` pops up a question and waits for the answer, and the two skill tools
-// let the model create/remove skills on request. They can't be static like the
-// file tools (they need callbacks into App's state + popups), so a factory
-// closes over the injected handlers. chat.ts builds these per-turn from what
-// App provides and merges the result into the same `tools` object. A handler
-// left out simply omits its tool — the fail-soft path for a headless embedder
-// that doesn't wire them.
+// These reach back into the running app rather than only touching disk, so they
+// can't be static like the file tools — a factory closes over the injected
+// handlers. A handler left out simply omits its tool, the fail-soft path for a
+// headless embedder that doesn't wire them.
 
-// What the model wants to ask the user. `options` are selectable labels;
-// `allowInput` also offers a free-text answer. Surfaced to App, which renders
-// the popup and resolves with the chosen/typed string.
+// `options` are selectable labels; `allowInput` also offers free text.
 export type AskUserRequest = {
   question: string;
   options: string[];
   allowInput: boolean;
 };
 
-// The skill operations App exposes to the model tools: `save` persists a skill
-// (and updates live state), `remove` deletes one (false if absent), `list`
-// returns the current skills so the model can read what already exists. All are
-// the same code paths the /skills popup uses, so tool-driven and popup-driven
+// The same code paths the /skills popup uses, so tool-driven and popup-driven
 // edits stay consistent.
 export type SkillActions = {
   save: (skill: Skill) => Promise<void>;
@@ -681,11 +641,9 @@ export function makeInteractiveTools(deps: InteractiveDeps): ToolSet {
   return tools;
 }
 
-// Preview what a write-tool call would do, without doing it — shown in the
-// approval popup. Returns null when there is nothing meaningful to preview:
-// non-write tools, malformed input, or a plan that fails validation (that
-// call is doomed to return its error string without touching disk, so
-// there's no change to approve).
+// Returns null when there's nothing meaningful to preview: non-write tools,
+// malformed input, or a plan that fails validation — that call is doomed to
+// return its error string without touching disk, so there's nothing to approve.
 export async function previewToolCall(
   toolName: string,
   input: unknown,
@@ -712,18 +670,15 @@ export async function previewToolCall(
     const plan = await planDelete(i.path);
     return plan.ok ? { label: plan.proposal, diffText: plan.diffText } : null;
   }
-  // The shell tool has no diff to preview — the command string itself is the
-  // thing being authorized, so surface it in the label. The popup shows this
-  // prominently instead of the raw JSON args.
+  // No diff to preview — the command string itself is the thing being
+  // authorized, so the popup shows this instead of raw JSON args.
   if (toolName === "runCommand" && typeof i?.command === "string") {
     const cmd = i.command.trim();
     return cmd ? { label: `run \`${cmd}\`` } : null;
   }
-  // Saving a skill: show the body as an all-green diff so the approval popup
-  // reveals exactly what will be stored (not just the name). We diff against ""
-  // — the plan has no access to the existing skill here — so an update shows the
-  // full new instructions rather than only the delta, which is the part that
-  // matters when deciding to approve.
+  // All-green diff against "", so the popup reveals exactly what will be
+  // stored. An update shows the full new instructions rather than a delta,
+  // which is the part that matters when deciding to approve.
   if (
     toolName === "saveSkill" &&
     typeof i?.name === "string" &&
@@ -744,8 +699,7 @@ export async function previewToolCall(
   return null;
 }
 
-// One tool-loop event, as surfaced by streamChat's fullStream: the SDK ran a
-// tool and produced output ("result"), or the tool threw ("error").
+// One tool-loop event from streamChat's fullStream.
 export type ToolEvent = {
   phase: "result" | "error";
   tool: string;
@@ -753,9 +707,8 @@ export type ToolEvent = {
   output: unknown;
 };
 
-// Translate a raw ToolEvent into what the transcript shows. Lives here, not
-// in the UI, so knowledge of each tool's input/output shape stays in the
-// module that defines the tools.
+// Lives here, not in the UI, so knowledge of each tool's input/output shape
+// stays in the module that defines the tools.
 export function describeToolEvent(evt: ToolEvent): ToolNote {
   const input = evt.input as Record<string, unknown> | null;
   const path = typeof input?.path === "string" ? input.path : "";
@@ -763,8 +716,8 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
   if (evt.phase === "error") {
     return { label: `${evt.tool} ${path} failed`.replace("  ", " ") };
   }
-  // Tools report recoverable failures as "error: ..." strings — show them so
-  // the user sees the model hit a wall (and watch it self-correct).
+  // Recoverable failures come back as "error: ..." strings — show them so the
+  // user sees the model hit a wall and watches it self-correct.
   if (typeof evt.output === "string" && evt.output.startsWith("error: ")) {
     return { label: `${evt.tool} ${path} — ${evt.output}`.replace("  ", " ") };
   }
@@ -797,22 +750,20 @@ export function describeToolEvent(evt: ToolEvent): ToolNote {
     }
     case "saveSkill":
     case "deleteSkill": {
-      // Both return { summary } on success (past tense, ready for the transcript).
+      // Both return { summary } in past tense, ready for the transcript.
       const out = evt.output as { summary?: unknown } | null;
       if (out && typeof out.summary === "string") return { label: out.summary };
       return { label: evt.tool };
     }
     case "askUser": {
-      // input carries the question, output the user's answer string.
       const q =
         typeof input?.question === "string" ? input.question.trim() : "asked";
       const answer = typeof evt.output === "string" ? evt.output.trim() : "";
       return { label: answer ? `${q} → ${answer}` : q };
     }
     default:
-      // Anything else — an MCP server tool. There's no local schema for its
-      // input/output, so just record that it ran (the tool name is already
-      // namespaced <server>__<tool>).
+      // An MCP server tool: no local schema for its shape, so just record that
+      // it ran. The name is already namespaced <server>__<tool>.
       return { label: `ran ${evt.tool}` };
   }
 }

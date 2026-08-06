@@ -1,14 +1,7 @@
-// API key storage — pure module, no React, no TUI.
-//
-// Keys live in ~/.sydcli/auth.json, or in real env vars (shell / .env) which
-// always take precedence. At startup applyStoredKeys() surfaces stored keys
-// into process.env, so the AI SDKs keep reading keys the way they always
-// have — no key value ever flows through app code after that point.
-//
 // Security invariants:
-//   - auth.json is chmod 600 (owner read/write only); ~/.sydcli is 700.
-//   - Written atomically (tmp + rename), and the tmp file is locked down
-//     BEFORE it becomes the real file — no window where keys are readable.
+//   - auth.json is chmod 600, ~/.sydcli is 700.
+//   - Written tmp + rename, with the tmp locked down BEFORE it becomes the real
+//     file — no window where keys are world-readable.
 //   - Key values are never logged, rendered, or included in errors.
 
 import { homedir } from "node:os";
@@ -29,15 +22,12 @@ import {
 const AUTH_DIR = join(homedir(), ".sydcli");
 const AUTH_FILE = join(AUTH_DIR, "auth.json");
 
-// Reserved store key holding the ChatGPT OAuth tokens as a JSON blob. Kept out
-// of the env-var namespace so it never collides with a provider's key and is
-// never surfaced into process.env.
+// Kept out of the env-var namespace so it never collides with a provider key
+// and is never surfaced into process.env.
 const CHATGPT_STORE_KEY = "openai-chatgpt-tokens";
 
-// Sanity-check a pasted key: printable ASCII only (no whitespace, no control
-// chars from paste artifacts), sane length. Provider key formats vary too
-// much to validate harder without false rejections. Returns the trimmed key,
-// or null if it can't be one.
+// Printable ASCII and a sane length is as far as this can go — provider key
+// formats vary too much to validate harder without false rejections.
 export function validateApiKey(raw: string): string | null {
   const key = raw.trim();
   if (key.length < 8 || key.length > 512) return null;
@@ -45,18 +35,14 @@ export function validateApiKey(raw: string): string | null {
   return key;
 }
 
-// Live check against the provider's API before a key is stored.
-//   "ok"          → authenticated successfully
-//   "invalid"     → the provider rejected the key (400/401/403)
-//   "unreachable" → network failure, timeout, or a 5xx/429 — the key can't
-//                   be judged either way, so don't store it; let the user retry.
+// "unreachable" means the key can't be judged either way, so it isn't stored
+// and the user retries.
 export type KeyVerdict = "ok" | "invalid" | "unreachable";
 
 export async function verifyApiKey(
   provider: Provider,
   key: string,
 ): Promise<KeyVerdict> {
-  // OAuth providers don't authenticate by pasted key; nothing to verify.
   if (provider.auth !== "api-key") return "invalid";
   const { url, headers } = provider.verifyRequest(key);
   try {
@@ -81,7 +67,7 @@ async function readStore(): Promise<Record<string, string>> {
     if (typeof data !== "object" || data === null || Array.isArray(data)) {
       return {};
     }
-    // Keep only string values — anything else is a corrupt/tampered entry.
+    // Anything non-string is a corrupt or tampered entry.
     const store: Record<string, string> = {};
     for (const [envVar, value] of Object.entries(data)) {
       if (typeof value === "string") store[envVar] = value;
@@ -92,9 +78,7 @@ async function readStore(): Promise<Record<string, string>> {
   }
 }
 
-// Atomic, owner-only write of the whole store. The tmp file is locked down
-// BEFORE it becomes the real file, so there's no window where secrets are
-// world-readable. Shared by every writer so the invariants live in one place.
+// The single writer, so the 0600/atomicity invariants live in one place.
 async function writeStore(store: Record<string, string>): Promise<void> {
   await mkdir(AUTH_DIR, { recursive: true, mode: 0o700 });
   const tmp = `${AUTH_FILE}.tmp`;
@@ -107,18 +91,14 @@ export async function saveApiKey(envVar: string, key: string): Promise<void> {
   const store = await readStore();
   store[envVar] = key;
   await writeStore(store);
-  // Make it live for this process immediately — the SDKs read process.env.
+  // The SDKs read process.env, so make it live immediately.
   process.env[envVar] = key;
 }
 
 // --- Generic secret blobs ---------------------------------------------------
-//
-// Arbitrary secret strings (MCP OAuth tokens, client registrations, PKCE
-// verifiers) stored under a namespaced key in the SAME 0600 auth.json, so they
-// inherit its atomic-write / owner-only guarantees. Kept out of the provider
-// envVar namespace and never surfaced into process.env (applyStoredKeys only
-// walks known provider env vars), so they can't leak into a subprocess or the
-// SDKs. Callers own their key namespace (e.g. "mcp-oauth:<server>:tokens").
+// Share auth.json so they inherit its 0600 / atomic-write guarantees, but stay
+// out of the envVar namespace and out of process.env, so they can't leak into a
+// subprocess. Callers own their key namespace ("mcp-oauth:<server>:tokens").
 
 export async function readAuthBlob(key: string): Promise<string | undefined> {
   return (await readStore())[key];
@@ -140,8 +120,7 @@ export async function deleteAuthBlob(key: string): Promise<void> {
 
 // --- ChatGPT OAuth tokens ---------------------------------------------------
 
-// Read the stored tokens, defensively (the file is user-editable and could be
-// corrupt). Returns null if absent or unusable.
+// The file is user-editable, so parse defensively; null means signed out.
 async function loadChatGPTTokens(): Promise<ChatGPTTokens | null> {
   const raw = (await readStore())[CHATGPT_STORE_KEY];
   if (!raw) return null;
@@ -165,7 +144,6 @@ async function loadChatGPTTokens(): Promise<ChatGPTTokens | null> {
   return null;
 }
 
-// Persist tokens and make them live for this process (the resolve holder).
 export async function saveChatGPTTokens(tokens: ChatGPTTokens): Promise<void> {
   const store = await readStore();
   store[CHATGPT_STORE_KEY] = JSON.stringify(tokens);
@@ -173,10 +151,8 @@ export async function saveChatGPTTokens(tokens: ChatGPTTokens): Promise<void> {
   setActiveChatGPT({ access: tokens.access, accountId: tokens.accountId });
 }
 
-// Return a usable access token, refreshing first if it's at/near expiry.
-// Refresh responses can drop the account-id claim, so the previous account id
-// is carried forward. Throws if not signed in or the refresh fails — the
-// caller surfaces that and can re-run the login.
+// Refresh responses can drop the account-id claim, so the previous one is
+// carried forward. Throws if signed out or the refresh fails.
 export async function getChatGPTAccessToken(): Promise<{
   access: string;
   accountId: string | null;
@@ -184,7 +160,7 @@ export async function getChatGPTAccessToken(): Promise<{
   const tokens = await loadChatGPTTokens();
   if (!tokens) throw new Error("not signed in to ChatGPT — run /provider");
 
-  // Refresh a minute early so an in-flight call never races the expiry.
+  // A minute early, so an in-flight call never races the expiry.
   if (Date.now() < tokens.expiresAt - 60_000) {
     setActiveChatGPT({ access: tokens.access, accountId: tokens.accountId });
     return { access: tokens.access, accountId: tokens.accountId };
@@ -196,15 +172,12 @@ export async function getChatGPTAccessToken(): Promise<{
   return { access: refreshed.access, accountId: refreshed.accountId };
 }
 
-// Generic pre-call hook used by chat.ts: make sure the provider's credentials
-// are ready to use. No-op for key providers (the SDK reads env); for OAuth it
-// refreshes the token if needed and updates the resolve holder.
+// No-op for key providers (the SDK reads env); OAuth refreshes if needed.
 export async function ensureProviderReady(id: ProviderId): Promise<void> {
   if (providers[id].auth === "oauth") await getChatGPTAccessToken();
 }
 
-// Startup: load stored keys into this process's env. A real env var
-// (shell export or .env) always wins over the store.
+// A real env var (shell export or .env) always wins over the store.
 export async function applyStoredKeys(): Promise<void> {
   const store = await readStore();
   for (const provider of providerList) {
@@ -213,9 +186,7 @@ export async function applyStoredKeys(): Promise<void> {
       process.env[provider.envVar] = store[provider.envVar];
     }
   }
-  // Prime the ChatGPT resolve holder so hasApiKey() reports it as ready and
-  // the first call has a token to refresh from. No network here — refresh is
-  // deferred to the first actual use (getChatGPTAccessToken).
+  // No network here — refresh is deferred to first actual use.
   const tokens = await loadChatGPTTokens();
   if (tokens) {
     setActiveChatGPT({ access: tokens.access, accountId: tokens.accountId });

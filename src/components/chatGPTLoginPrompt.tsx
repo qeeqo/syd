@@ -5,9 +5,8 @@ import type { Provider } from "../providers";
 
 type ChatGPTLoginPromptProps = {
   provider: Provider;
-  // Runs the full OAuth flow (open browser → await redirect → save tokens).
-  // Resolves to null on success (parent closes the prompt) or an error message
-  // to show inline — the prompt stays open so the user can retry or esc out.
+  // Resolves to null on success, or an error to show inline — the prompt stays
+  // open so the user can retry or esc out.
   onLogin: () => Promise<string | null>;
   onCancel: () => void;
 };
@@ -19,7 +18,6 @@ export default function ChatGPTLoginPrompt({
 }: ChatGPTLoginPromptProps) {
   const t = useTheme();
   const [error, setError] = useState<string | null>(null);
-  // True from the moment the browser opens until the flow settles.
   const [waiting, setWaiting] = useState(false);
 
   async function start() {
@@ -31,15 +29,14 @@ export default function ChatGPTLoginPrompt({
       setError(failure);
       return;
     }
-    // Success: parent unmounts us.
+    // Parent unmounts us.
   }
 
   useKeyboard((key) => {
     if (key.name === "escape") {
       key.preventDefault();
-      // esc during the wait just abandons the UI; the loopback server times
-      // out on its own. Only allow it when not mid-flight to avoid a dangling
-      // prompt state.
+      // Only when not mid-flight: esc during the wait would leave a dangling
+      // prompt state. The loopback server times out on its own.
       if (!waiting) onCancel();
       return;
     }

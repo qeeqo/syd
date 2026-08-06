@@ -4,11 +4,9 @@ import type { Message, SystemTone } from "../commands/type";
 import type { ThemeTokens } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
-// --- glow color helpers -----------------------------------------------------
-// Linearly interpolate between two "#rrggbb" colors so the loader can pulse a
-// smooth ramp of the accent hue (theme tokens are discrete, so we synthesize the
-// in-between stops here). Malformed input falls back to white rather than throw
-// — this paints every frame, so it must never crash the transcript.
+// Theme tokens are discrete, so the loader's in-between stops are synthesized
+// here. Malformed input falls back to white rather than throwing — this paints
+// every frame and must never crash the transcript.
 function hexToRgb(hex: string): [number, number, number] {
   const m = /^#?([0-9a-fA-F]{6})$/.exec(hex.trim());
   if (!m) return [255, 255, 255];
@@ -27,20 +25,10 @@ function mixColor(a: string, b: string, ratio: number): string {
   return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
 }
 
-// --- system-notice gutter ---------------------------------------------------
-// System notices are drawn as a bordered box with only its left side enabled,
-// which makes the rule a *layout* feature rather than a character prefixed to
-// the text. That's the whole point: a glyph inside the <text> (the old "· ")
-// only marks the first line, so a notice long enough to wrap — "copy failed: …",
-// the MCP "if your browser didn't open, visit: <url>" pair, a config warning —
-// puts its continuation back at column 0 and the marker stops reading as one.
-// A border is drawn for the box's full measured height, so every wrapped line
-// keeps the rule.
-//
-// Only `vertical` is ever painted (no other side is enabled), but the
-// BorderCharacters contract wants the full set; the left-edge entries all carry
-// the rule so a corner never punches a hole in it, and the rest are spaces so
-// nothing bleeds in from the unused sides.
+// A left border, not a glyph prefixed to the text: the border is drawn for the
+// box's full height, so a wrapped notice keeps the rule on every line.
+// Only `vertical` is painted, but BorderCharacters wants the whole set — the
+// left-edge entries all carry the rule so a corner can't punch a hole in it.
 const RULE = "▏";
 const RULE_CHARS: BorderCharacters = {
   topLeft: RULE,
@@ -56,19 +44,15 @@ const RULE_CHARS: BorderCharacters = {
   cross: " ",
 };
 
-// Severity lives in the rule's colour alone — the text stays one uniform muted
-// grey at every tone. A failure is then findable by scanning one column instead
-// of reading, and the transcript never shouts a red sentence at the user for
-// something as ordinary as a bad `/rename` argument.
+// Severity is carried by the rule's colour alone; the text stays one muted grey
+// at every tone, so the transcript never shouts over a bad /rename argument.
 function ruleColor(t: ThemeTokens, tone: SystemTone | undefined): string {
   switch (tone) {
     case "error":
       return t.danger;
     case "warn":
       return t.warning;
-    default:
-      // Also the landing spot for a tone that survived from a future version's
-      // session file — unknown severity reads as neutral rather than crashing.
+    default: // also catches an unknown tone from a newer version's session file
       return t.textDim;
   }
 }
@@ -89,9 +73,6 @@ function GlowLoader() {
   const phase = tick % period;
   const head = phase < GLOW_DOTS ? phase : period - phase;
 
-  // The label breathes on a slower triangle wave so it pulses with the sweep
-  // without strobing character-by-character.
-
   return (
     <box flexDirection="row" gap={1} paddingX={2} marginTop={1}>
       <box flexDirection="row">
@@ -111,7 +92,6 @@ function GlowLoader() {
 type ChatMainProps = {
   messages: Message[];
   streaming: boolean;
-  // Active model id, shown in the empty-session masthead. Owned by App.
   model: string;
 };
 
@@ -120,10 +100,7 @@ export default function ChatMain({
   streaming,
   model,
 }: ChatMainProps) {
-  // One shared syntax theme for all rendered markdown. Created lazily on first
-  // render (after the renderer's native lib is up) via a useState initializer
-  // so it's built exactly once and reused for the app's lifetime — cheaper than
-  // one per message and satisfies <markdown>'s required syntaxStyle prop.
+  // Lazily, because it can only be built after the renderer's native lib is up.
   const [syntaxStyle] = useState(() => SyntaxStyle.create());
   const t = useTheme();
 
@@ -142,15 +119,11 @@ export default function ChatMain({
         flexGrow={1}
       >
         {messages.length === 0 ? (
-          // Empty session: the masthead, pinned to the top-left of the area.
           <SydBanner model={model} />
         ) : (
-          /*
-            A scrollbox clips its content to the viewport and scrolls instead of
-            overflowing onto the input box / command popup below it. stickyScroll
-            keeps the latest output pinned to the bottom while streaming, but
-            releases once the user scrolls up to read earlier messages.
-          */
+          /* Clips to the viewport instead of overflowing onto the input box.
+             stickyScroll pins the latest output while streaming, and releases
+             once the user scrolls up to read earlier messages. */
           <scrollbox
             flexGrow={1}
             scrollY
@@ -172,17 +145,12 @@ export default function ChatMain({
           </scrollbox>
         )}
       </box>
-      {/* Glowing loader pinned to the base of the transcript (a sibling of the
-          flexGrow'd box above), so it sits right on top of the chat input while
-          a turn is in flight. */}
       {streaming && <GlowLoader />}
     </box>
   );
 }
 
-// Collapse the home prefix to "~" so the masthead shows a path that fits and
-// reads the way the user would say it. Falls back to the raw cwd if HOME is
-// unset (a bare cron/CI shell), never to an empty string.
+// Falls back to the raw cwd when HOME is unset (a bare cron/CI shell).
 function shortCwd(): string {
   const cwd = process.cwd();
   const home = process.env.HOME;
@@ -192,11 +160,8 @@ function shortCwd(): string {
   return cwd;
 }
 
-// New-session masthead: the syd wordmark with a three-line colophon beside it,
-// shown while the chat is empty (a fresh session, or opening syd in a
-// directory). Pinned to the top-left of the chat area. The inner row lays the
-// wordmark and the colophon side by side; alignItems="center" centres the three
-// short lines against the wordmark's six, so neither block looks dropped.
+// alignItems="center" centres the colophon's three lines against the wordmark's
+// six, so neither block looks dropped.
 function SydBanner({ model }: { model: string }) {
   const t = useTheme();
   return (
@@ -209,10 +174,8 @@ function SydBanner({ model }: { model: string }) {
       paddingTop={1}
     >
       <box flexDirection="row" alignItems="center" gap={3}>
-        {/* Every OpenTUI ascii font is uppercase-only — lowercase renders blank.
-            "pallet" draws double-line glyphs in colour 1 over a "─" fill that
-            covers the whole bounding box in colour 2, so the two-stop gradient
-            reads as letters-on-a-ground rather than a shaded letter edge. */}
+        {/* Uppercase only — every OpenTUI ascii font renders lowercase blank.
+            "pallet" draws glyphs in colour 1 over a fill in colour 2. */}
         <ascii-font text="SYD" font="pallet" color={[t.accent, t.accentDeep]} />
         <box flexDirection="column">
           <text fg={t.textDim}>{shortCwd()}</text>
@@ -231,15 +194,10 @@ type MessageBlockProps = {
   streaming: boolean;
 };
 
-// Memoized so a streaming flush only re-renders the one bubble whose props
-// actually changed. Every 33ms flush hands ChatMain a new `messages` array, but
-// App's functional setMessages (slice + spread-the-last) preserves each
-// unchanged message's *object reference*, so React.memo's default shallow
-// compare (message ref, stable syntaxStyle, streaming=false for all but the
-// last) skips every finished bubble. Only the live tail — new message ref plus
-// streaming=true — re-renders. Without this, the whole transcript re-renders and
-// the <scrollbox> re-measures on every token, which is what made the in-flight
-// text jump and garble. This is the OpenTUI equivalent of Ink's <Static>.
+// Load-bearing: without memo the whole transcript re-renders and the <scrollbox>
+// re-measures on every flush, which makes in-flight text jump and garble. It
+// works because App's setMessages preserves the object reference of every
+// unchanged message, so the shallow compare skips all but the live tail.
 const MessageBlock = memo(function MessageBlock({
   message,
   syntaxStyle,
@@ -247,8 +205,6 @@ const MessageBlock = memo(function MessageBlock({
 }: MessageBlockProps) {
   const t = useTheme();
   if (message.role === "system") {
-    // Tool activity: "↳ edited src/x.ts" plus a red/green highlighted diff
-    // when the tool changed a file.
     if (message.toolNote) {
       return (
         <box flexDirection="column" width="100%">
@@ -275,9 +231,6 @@ const MessageBlock = memo(function MessageBlock({
         </box>
       );
     }
-    // Other system notices: a quiet blockquote. No header and no marker in the
-    // text — the rule in the gutter is what says "this is the app talking, not
-    // the conversation", and its colour is what says how badly it went.
     return (
       <box
         flexDirection="column"
@@ -313,13 +266,11 @@ const MessageBlock = memo(function MessageBlock({
     );
   }
 
-  // User turns are shown verbatim — no markdown parsing on what they typed.
+  // Verbatim — no markdown parsing on what the user typed.
   //
-  // The tinted band hugs the text rather than spanning the column: the parent
-  // is a stretch-aligned column, so alignSelf="flex-start" is what lets the box
-  // size to its content. maxWidth="100%" keeps a long message wrapping at the
-  // container edge instead of running off it — without the cap, a content-sized
-  // box would try to grow to the full length of an unwrapped line.
+  // alignSelf lets the tinted band size to its content instead of spanning the
+  // column; maxWidth then keeps a long message wrapping at the container edge
+  // rather than growing to the full length of an unwrapped line.
   return (
     <box
       flexDirection="row"

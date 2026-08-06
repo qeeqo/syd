@@ -4,11 +4,10 @@ import App from "./App.tsx";
 import { applyStoredKeys } from "./auth.ts";
 import { loadConfig } from "./config.ts";
 
-await applyStoredKeys(); // secrets -> env
+await applyStoredKeys();
 
-const { config, warnings } = await loadConfig(); // read config.json
+const { config, warnings } = await loadConfig();
 
-const renderer = await createCliRenderer(); // build the renderer
+const renderer = await createCliRenderer();
 
-// mount react into it
 createRoot(renderer).render(<App config={config} configWarnings={warnings} />);

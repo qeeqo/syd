@@ -9,11 +9,9 @@ type SessionPickerProps = {
   onDismiss: () => void;
 };
 
-// Same cap as CommandSuggestions: window the list around the selection so a
-// long history scrolls instead of growing the popup.
+// Window the list around the selection so a long history scrolls.
 const MAX_VISIBLE = 8;
 
-// Human-readable "how long ago" for each session row.
 function formatAge(timestamp: number): string {
   const mins = Math.floor((Date.now() - timestamp) / 60_000);
   if (mins < 1) return "just now";
@@ -32,7 +30,6 @@ export default function SessionPicker({
   const [selected, setSelected] = useState(0);
   const total = sessions.length;
 
-  // The picker owns navigation; App owns what happens on select/dismiss.
   // preventDefault keeps these keys away from the (unfocused) input below.
   useKeyboard((key) => {
     switch (key.name) {
@@ -55,7 +52,7 @@ export default function SessionPicker({
     }
   });
 
-  // Window start: keep the selected row visible, biased toward the middle.
+  // Keep the selected row visible, biased toward the middle.
   const start =
     total <= MAX_VISIBLE
       ? 0
@@ -65,8 +62,7 @@ export default function SessionPicker({
         );
   const visible = sessions.slice(start, start + MAX_VISIBLE);
 
-  // Align columns: pad titles to the widest (capped so one long title
-  // doesn't blow the popup out to full width).
+  // Capped so one long title doesn't blow the popup out to full width.
   const titleWidth = Math.min(
     sessions.reduce((w, s) => Math.max(w, s.title.length), 0),
     32,
@@ -113,10 +109,6 @@ export default function SessionPicker({
         );
       })}
       {hiddenBelow > 0 && <text fg={t.textFaint}> ↓ {hiddenBelow} more</text>}
-      {/* <text fg={t.textHint} marginTop={1}> */}
-      {/*   {" "} */}
-      {/*   ↑↓ navigate · ↵ resume · esc dismiss */}
-      {/* </text> */}
     </box>
   );
 }

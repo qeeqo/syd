@@ -1,89 +1,57 @@
 export type ThemeTokens = {
   // --- surfaces ---
-  // App root background (the whole screen).
   appBg: string;
-  // The chat transcript area behind messages.
   transcriptBg: string;
-  // Popup / panel background (every overlay window).
   panelBg: string;
-  // Highlighted row background in a list/picker.
   selectionBg: string;
-  // Background strip behind a user's own message in the transcript.
   userBg: string;
 
   // --- borders ---
-  // Default panel / input border.
   border: string;
-  // Active / focused border (focused editor field, logo accent).
   borderActive: string;
-  // The chat input's own border (kept separate from borderActive so the primary
-  // prompt can read distinctly from focused editor fields).
+  // Separate from borderActive so the primary prompt reads distinctly from a
+  // focused editor field.
   inputBorder: string;
-  // Border for a caution panel (the approve-change prompt).
   warnBorder: string;
-  // Border for an interaction panel (the "syd asks" prompt).
   infoBorder: string;
 
   // --- special surfaces ---
-  // Added-line background in a rendered diff.
   diffAddBg: string;
-  // Removed-line background in a rendered diff.
   diffRemoveBg: string;
-  // Background of a delete-armed row (the two-step delete guard in /skills).
   armedBg: string;
 
   // --- text, brightest → faintest ---
-  // Brightest text (a user's own message).
   textStrong: string;
-  // Primary body text (assistant output, prompt bodies).
   text: string;
-  // Text on a highlighted/selected row (reads a touch brighter than `text`).
   textSelected: string;
-  // Secondary text (descriptions, sub-labels).
   textSecondary: string;
-  // Muted text (list descriptions, dim notices).
   textMuted: string;
-  // Dim text (footer hints, inline separators).
   textDim: string;
-  // Fainter text (scroll "N more" markers, unselected ids).
   textFaint: string;
-  // Faintest text (the dimmest keycap hint lines).
   textHint: string;
-  // Ink for text drawn on top of a bright/inverted fill (the session chip under
-  // the input). Distinct from `appBg` — which it used to borrow — because a
-  // transparent theme has no paintable app background, and zero-alpha text is
-  // not drawn at all.
+  // Ink on top of an inverted fill. Not appBg, which it used to borrow: a
+  // transparent theme has no paintable background, and zero-alpha text isn't
+  // drawn at all.
   inverseText: string;
 
   // --- accents ---
-  // Primary accent (titles, command/skill names, the model indicator).
   accent: string;
-  // Deep companion to `accent` — the second stop of the SYD logo gradient.
+  // Second stop of the SYD logo gradient.
   accentDeep: string;
-  // Success (the thinking sprout, "on" state, connected server).
   success: string;
-  // Brighter success (diff "+" sign, the approve keycap).
   successBright: string;
-  // Dimmer success (a provider's "key ✓" readiness).
   successDim: string;
-  // Warning (auto-approve indicator, "verifying…" notices).
   warning: string;
-  // Brighter warning (the approve-change panel title).
   warningBright: string;
-  // Danger (diff "−" sign, errors, the deny keycap, armed-delete text).
   danger: string;
-  // Dimmer danger ("off" state, a disconnected server).
   dangerDim: string;
-  // Deep danger (inline error text in the key / login prompts).
   dangerDeep: string;
-  // Info (the "syd asks" panel title).
   info: string;
 };
 
 export type Theme = {
-  // Stable id: what's stored in config.json and typed after /theme.
+  // Stored in config.json and typed after /theme.
   name: string;
-  // Display name shown in the picker.
   label: string;
   tokens: ThemeTokens;
 };
@@ -212,42 +180,31 @@ const catppuccin: Theme = {
 };
 
 // --- System (transparent)
+// The only theme that composites with the terminal instead of covering it:
+// transparent cells emit no background escape, so window transparency and blur
+// show through.
 //
-// Paints no surfaces: every background token is "transparent", which OpenTUI
-// parses to RGBA(0,0,0,0). With nothing opaque beneath — the renderer's own
-// default backgroundColor is "transparent" too — those cells emit no background
-// escape, so the terminal's own background shows through, including window
-// transparency and blur. That is the whole point of this theme: it is the only
-// one that composites with the terminal instead of covering it.
-//
-// The foregrounds stay explicit hex. OpenTUI can address the terminal's 16-color
-// palette (RGBA.fromIndex) which would track a user's terminal theme exactly,
-// but ThemeTokens is typed `string` and code like chatMain's mixColor() parses
-// these as hex — so indexed colors would need a wider ColorInput refactor. These
-// values are picked to read against a dark translucent terminal, which is what
-// blur setups almost always are.
+// Foregrounds stay hex rather than indexed palette colors (which would track the
+// user's terminal theme exactly) because ThemeTokens is typed `string` and
+// chatMain's mixColor parses them as hex — indexed would need a ColorInput
+// refactor. These values are picked to read against a dark translucent
+// terminal.
 const system: Theme = {
   name: "system",
   label: "System",
   tokens: {
-    // --- surfaces: the chat area is transparent, which is where blur pays off
+    // --- surfaces
     appBg: "transparent",
     transcriptBg: "transparent",
-    // The user's own turn keeps its green tint here too. It marks who said what,
-    // so it has to be visible — and now that the band hugs the text instead of
-    // spanning the column, it covers little enough that the terminal still shows
-    // through everywhere around it.
+    // Tinted even here: it marks who said what, and the band hugs the text so
+    // it covers little enough for the terminal to still show through.
     userBg: "#1b3326",
-    // Popups and highlighted rows are the deliberate exceptions. A popup draws
-    // *over* the transcript; with no fill, the text beneath shows through its
-    // text and both become unreadable. A selected row with no fill has no
-    // highlight at all — the affordance disappears. Both stay opaque so the
-    // theme is transparent where it helps and solid where it must be.
+    // Opaque on purpose: a popup with no fill lets the transcript show through
+    // its text (both unreadable), and an unfilled selected row has no highlight
+    // at all.
     panelBg: "#16181d",
     selectionBg: "#2c3340",
-    // Diff and armed rows keep a tint — these *must* read as a colored band to
-    // do their job, and a transparent diff is an unreadable diff. They are the
-    // deliberate exception to the no-surfaces rule.
+    // A transparent diff is an unreadable diff.
     diffAddBg: "#1e3a26",
     diffRemoveBg: "#3d2027",
     armedBg: "#4a2530",
@@ -267,8 +224,8 @@ const system: Theme = {
     textFaint: "#6a6a6a",
     textHint: "#5a5a5a",
     inverseText: "#101216",
-    // --- accents: standard-ish ANSI hues, so they sit naturally next to
-    // whatever palette the terminal itself is using
+    // --- accents: standard-ish ANSI hues, to sit naturally beside whatever
+    // palette the terminal itself uses
     accent: "#8bb4ff",
     accentDeep: "#5577bb",
     success: "#7ec87e",
@@ -292,11 +249,9 @@ export const THEMES: Record<string, Theme> = {
 
 export const DEFAULT_THEME_NAME = "catppuccin";
 
-// Theme ids that shipped once and have since been removed. A config.json out in
-// the world can still name one, so they resolve to the default *silently* —
-// without them, config parsing would warn "unknown theme" on every launch for
-// anyone who had the retired theme selected. Distinct from a genuine typo,
-// which should still warn.
+// Resolve to the default *silently*, so someone who had a since-removed theme
+// selected doesn't get an "unknown theme" warning every launch. A genuine typo
+// should still warn, which is why this list is explicit.
 const RETIRED_THEME_NAMES = new Set(["syd"]);
 
 export function isRetiredThemeName(name: string): boolean {
@@ -305,15 +260,13 @@ export function isRetiredThemeName(name: string): boolean {
 
 export const themeList: Theme[] = Object.values(THEMES);
 
-// True when `name` is a known theme id — used by config parsing to validate the
-// stored preference before trusting it.
+// Used by config parsing to validate the stored preference before trusting it.
 export function isThemeName(name: string): boolean {
   return Object.prototype.hasOwnProperty.call(THEMES, name);
 }
 
-// Resolve a stored/typed name to a concrete Theme, always returning something
-// paintable: an unknown or missing name falls back to the default rather than
-// leaving the UI without colors.
+// Always returns something paintable — an unknown name falls back to the
+// default rather than leaving the UI without colors.
 export function resolveTheme(name: string | undefined): Theme {
   if (name && isThemeName(name)) return THEMES[name];
   return THEMES[DEFAULT_THEME_NAME];

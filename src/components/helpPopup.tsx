@@ -8,7 +8,6 @@ type HelpPopupProps = {
 
 export default function HelpPopup({ onDismiss }: HelpPopupProps) {
   const t = useTheme();
-  // Informational only — any of the obvious "close" keys dismisses it.
   useKeyboard((key) => {
     if (key.name === "escape" || key.name === "return") {
       key.preventDefault();

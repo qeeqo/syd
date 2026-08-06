@@ -4,21 +4,16 @@ import { themeList } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
 type ThemePickerProps = {
-  // The persisted theme id — marks the ● row and is what Escape reverts to.
+  // Marks the ● row and is what Escape reverts to.
   current: string;
-  // Live preview: called as the highlight moves so App can apply the theme
-  // immediately (no persist), re-theming the whole UI — including this picker.
+  // Live preview as the highlight moves — App applies without persisting.
   onHighlight: (name: string) => void;
-  // Confirm the highlighted theme: App persists it and closes the picker.
   onSelect: (name: string) => void;
-  // Back out: App restores `current` (undoing any live preview) and closes.
+  // App restores `current`, undoing any live preview.
   onDismiss: () => void;
 };
 
-// The /theme window, sibling to /model and /provider. ↑↓ moves the highlight and
-// live-previews that theme across the whole UI; ↵ keeps it (persisted); esc
-// reverts to the theme you started on. Its own chrome reads from useTheme(), so
-// it recolors as you preview.
+// Its own chrome reads from useTheme(), so it recolors as you preview.
 export default function ThemePicker({
   current,
   onHighlight,

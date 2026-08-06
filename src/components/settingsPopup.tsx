@@ -3,18 +3,14 @@ import { useKeyboard } from "@opentui/react";
 import { TextAttributes } from "@opentui/core";
 import { useTheme } from "./themeContext";
 
-// One preference shown in the /settings window. App owns the live state and
-// re-passes a fresh list on every change, so this popup is fully controlled —
-// it renders whatever App hands it.
-//
-// Two shapes, discriminated on `kind`: a plain on/off switch, and a choice that
-// cycles through a fixed set of named values (reasoning level). They render the
-// same way — a right-aligned value column — and answer the same key, so adding
-// the second kind cost the popup no new interaction to learn.
+// Fully controlled: App owns the live state and re-passes a fresh list on every
+// change. Two shapes discriminated on `kind` — an on/off switch and a choice
+// cycling a fixed set — rendered the same way and answering the same key, so the
+// second kind cost no new interaction to learn.
 type SettingBase = {
   key: string;
   label: string;
-  // A one-line explanation, shown under the row while it's highlighted.
+  // Shown under the row while it's highlighted.
   description: string;
 };
 
@@ -24,17 +20,13 @@ export type SettingItem =
 
 type SettingsPopupProps = {
   items: SettingItem[];
-  // Advance the setting with this key: a toggle flips, a choice steps to its
-  // next option (wrapping). App updates state AND persists to config.json, then
-  // re-renders this popup with the new value.
+  // A toggle flips; a choice steps to its next option, wrapping. App persists
+  // and re-renders this popup with the new value.
   onToggle: (key: string) => void;
   onDismiss: () => void;
 };
 
-// The /settings window, sibling to /help and /mcp. A short list of on/off
-// preferences: ↑↓ moves the highlight, Enter/Space flips the highlighted one
-// (its state is shown as the words "on"/"off", not a button), Esc closes.
-// Every toggle persists immediately, so the window has no separate "save" step.
+// Every toggle persists immediately, so there's no separate "save" step.
 export default function SettingsPopup({
   items,
   onToggle,
@@ -67,7 +59,7 @@ export default function SettingsPopup({
     }
   });
 
-  // Align the on/off column so the states line up regardless of label length.
+  // So the states line up regardless of label length.
   const labelWidth = items.reduce((w, it) => Math.max(w, it.label.length), 0);
 
   return (
@@ -105,9 +97,8 @@ export default function SettingsPopup({
                   {item.value ? "on" : "off"}
                 </text>
               ) : (
-                // A choice reads as its current value, dimmed when it's the
-                // inert one ("default" = send nothing), so an active override is
-                // visually distinct from having never touched the setting.
+                // Dimmed on the inert value ("default" = send nothing), so an
+                // active override is visually distinct from never touching it.
                 <text
                   fg={item.value === item.options[0] ? t.textMuted : t.info}
                   attributes={TextAttributes.BOLD}

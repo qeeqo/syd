@@ -6,8 +6,7 @@ type CommandSuggestionsProps = {
   selectedIndex: number;
 };
 
-// Cap how tall the popup can get. With more items than this we window the
-// list around the selection so it stays compact and scrolls as you arrow.
+// Past this the list windows around the selection so the popup stays compact.
 const MAX_VISIBLE = 6;
 
 export default function CommandSuggestions({
@@ -17,13 +16,12 @@ export default function CommandSuggestions({
   const t = useTheme();
   const total = items.length;
 
-  // Window start: only scroll once the selection would fall past the last
-  // visible row. Until then the window stays at 0, so the popup's contents
-  // don't shift while arrowing through the first page.
+  // Only scroll once the selection would fall past the last visible row, so
+  // the contents don't shift while arrowing through the first page.
   const start = Math.max(0, selectedIndex - (MAX_VISIBLE - 1));
   const visible = items.slice(start, start + MAX_VISIBLE);
 
-  // Align descriptions into a column by padding names to the widest name.
+  // Align descriptions into a column.
   const nameWidth = items.reduce((w, c) => Math.max(w, c.name.length), 0);
 
   const hiddenBelow = total - (start + visible.length);
@@ -57,9 +55,8 @@ export default function CommandSuggestions({
           </box>
         );
       })}
-      {/* Always occupy this row while the list overflows, even at "0 more" —
-          a conditional row would change the popup height mid-scroll and make
-          the whole box jump. Blank keeps the height constant. */}
+      {/* Occupied even at "0 more": a conditional row would change the popup
+          height mid-scroll and make the whole box jump. */}
       {total > MAX_VISIBLE && (
         <text fg={t.textFaint}>
           {hiddenBelow > 0 ? ` ↓ ${hiddenBelow} more` : " "}

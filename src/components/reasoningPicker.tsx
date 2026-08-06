@@ -4,27 +4,21 @@ import { REASONING_LEVELS, type ReasoningLevel } from "../reasoning.ts";
 import { useTheme } from "./themeContext.tsx";
 
 type ReasoningPickerProps = {
-  // The active level — marks the ● row and is what Escape reverts to.
+  // Marks the ● row and is what Escape reverts to.
   current: ReasoningLevel;
   onSelect: (level: ReasoningLevel) => void;
   onDismiss: () => void;
-  // Set when the picker was opened with ^r from inside the model picker, so the
-  // footer can say where esc/↵ will land instead of implying a return to chat.
+  // Set when opened with ^r from the model picker, so the footer can say where
+  // esc/↵ will land.
   returnsToModels?: boolean;
-  // Per-level blurbs, shown under the highlighted row. Deliberately supplied by
-  // the caller rather than written here: the only descriptions worth showing are
-  // the ones the provider itself publishes for the active model (the ChatGPT
-  // catalog's `supported_reasoning_levels`). A level the provider says nothing
-  // about gets no line — better an honest blank than syd inventing a
-  // characterisation of a model's behaviour it can't actually vouch for.
-  //
-  // Partial by nature: no provider describes "default" or "off", and the key
-  // providers describe nothing at all.
+  // Supplied by the caller rather than written here: the only descriptions
+  // worth showing are the ones the provider publishes for the active model. A
+  // level it says nothing about gets no line — better an honest blank than syd
+  // inventing a characterisation it can't vouch for. Partial by nature: no
+  // provider describes "default" or "off".
   descriptions?: Partial<Record<ReasoningLevel, string>>;
 };
 
-// The /thinking window, sibling to /model, /provider, and /theme.
-// ↑↓ walks the scale (wrapping at the ends), ↵ applies, esc cancels.
 export default function ReasoningPicker({
   current,
   onSelect,

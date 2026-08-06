@@ -11,21 +11,17 @@ import { useTheme } from "./themeContext";
 
 type SkillsPopupProps = {
   skills: Skill[];
-  // Persist a created or edited skill. `previousName` is the handle being
-  // edited (so App can clean up a rename), or null when creating. App owns the
-  // actual write + state update; this popup only validates and hands off.
+  // `previousName` is the handle being edited (so App can clean up a rename),
+  // or null when creating. App owns the write; this popup only validates.
   onSave: (skill: Skill, previousName: string | null) => void;
   onDelete: (name: string) => void;
   onDismiss: () => void;
 };
 
-// How many skill rows the list shows before it windows around the selection.
 const MAX_VISIBLE = 8;
 
-// The /skills manager, sibling to /settings and /mcp. Two modes: a list of
-// skills (navigate, edit, delete, new) and an editor form (name + instructions).
-// Every save/delete persists via App to config.json. Skills are what @name
-// invokes in a message — this is where they're authored without leaving syd.
+// Two modes: a list of skills and an editor form. Skills are what @name invokes
+// in a message — this is where they're authored without leaving syd.
 export default function SkillsPopup({
   skills,
   onSave,
@@ -35,13 +31,12 @@ export default function SkillsPopup({
   const t = useTheme();
   const [mode, setMode] = useState<"list" | "edit">("list");
   const [selected, setSelected] = useState(0);
-  // The two-step delete guard: first `d` arms it for this name, second `d`
-  // confirms. Any navigation/other key disarms it.
+  // Two-step delete guard: first `d` arms for this name, second confirms. Any
+  // other key disarms.
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Editor state. `editingName` is the handle being edited, or null for a new
-  // skill. The textarea is uncontrolled (seeded once via initialValue), so it's
-  // remounted per session via `editKey` and read back through `textRef` on save.
+  // The textarea is uncontrolled (seeded once via initialValue), so it's
+  // remounted per session via `editKey` and read back through `textRef`.
   const [editingName, setEditingName] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [initialInstructions, setInitialInstructions] = useState("");
@@ -52,7 +47,7 @@ export default function SkillsPopup({
   const [error, setError] = useState<string | null>(null);
   const textRef = useRef<TextareaRenderable | null>(null);
 
-  // Keep the highlight in range even if the list shrank under us (after a delete).
+  // The list may have shrunk under us after a delete.
   const safeSelected = skills.length === 0 ? 0 : Math.min(selected, skills.length - 1);
 
   function openNew() {
@@ -98,8 +93,8 @@ export default function SkillsPopup({
       setFocusedField("instructions");
       return;
     }
-    // A different existing skill already owns this handle (renaming onto it, or
-    // creating a duplicate). Editing a skill and keeping its name is fine.
+    // Renaming onto another skill, or creating a duplicate. Keeping a skill's
+    // own name is fine.
     if (skills.some((s) => s.name === name && s.name !== editingName)) {
       setError(`A skill named @${name} already exists.`);
       setFocusedField("name");
@@ -142,7 +137,6 @@ export default function SkillsPopup({
           if (confirmDelete === name) {
             onDelete(name);
             setConfirmDelete(null);
-            // Keep the highlight on a valid row after the list shrinks.
             setSelected((i) => Math.max(0, Math.min(i, skills.length - 2)));
           } else {
             setConfirmDelete(name);
@@ -152,7 +146,7 @@ export default function SkillsPopup({
         case "escape":
         case "q":
           key.preventDefault();
-          // First disarm a pending delete; only then close the popup.
+          // Disarm a pending delete first; only then close.
           if (confirmDelete) setConfirmDelete(null);
           else onDismiss();
           break;
@@ -160,8 +154,8 @@ export default function SkillsPopup({
       return;
     }
 
-    // Edit mode: intercept only the three chrome keys; every other key falls
-    // through to the focused <input> / <textarea> so typing works normally.
+    // Intercept only the three chrome keys; everything else falls through to
+    // the focused field so typing works normally.
     if (key.name === "tab") {
       key.preventDefault();
       setFocusedField((f) => (f === "name" ? "instructions" : "name"));
@@ -227,8 +221,7 @@ export default function SkillsPopup({
   );
 }
 
-// The list of skills: one highlighted row per skill (handle + one-line hint),
-// windowed so a long list stays compact, mirroring the /mcp server list.
+// Windowed so a long list stays compact, mirroring the /mcp server list.
 function SkillList({
   skills,
   selected,
@@ -317,10 +310,9 @@ function SkillList({
   );
 }
 
-// The create/edit form: a single-line name field and a multi-line instructions
-// field. Only the focused field takes keystrokes (Tab toggles). The textarea is
-// uncontrolled — seeded once via initialValue and remounted per session with
-// `editKey` — and read back through the ref on save.
+// Only the focused field takes keystrokes (Tab toggles). The textarea is
+// uncontrolled — seeded via initialValue, remounted per session with `editKey`,
+// read back through the ref on save.
 function SkillEditor({
   editKey,
   titleDraft,

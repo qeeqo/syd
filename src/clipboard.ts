@@ -1,8 +1,5 @@
-// System clipboard — pure module, no React, no TUI.
-//
-// Security invariant: the text is piped to the clipboard tool's stdin and the
-// command is an argv ARRAY (no shell involved), so clipboard content can never
-// be interpreted as shell syntax — `$(...)`, backticks, quotes are all inert.
+// Security invariant: text goes to the tool's stdin and the command is an argv
+// array (no shell), so clipboard content can never be read as shell syntax.
 
 function clipboardCommand(): string[] {
   switch (process.platform) {
@@ -11,7 +8,6 @@ function clipboardCommand(): string[] {
     case "win32":
       return ["clip"];
     default:
-      // Linux/BSD: Wayland ships wl-copy; X11 setups typically have xclip.
       return process.env.WAYLAND_DISPLAY
         ? ["wl-copy"]
         : ["xclip", "-selection", "clipboard"];
@@ -21,8 +17,8 @@ function clipboardCommand(): string[] {
 export async function copyToClipboard(text: string): Promise<void> {
   const cmd = clipboardCommand();
 
-  // Type left to inference: Bun.spawn's return is generic over its options,
-  // so `stdin: "pipe"` is what narrows proc.stdin to a writable FileSink.
+  // Type left to inference: `stdin: "pipe"` is what narrows proc.stdin to a
+  // writable FileSink.
   let proc;
   try {
     proc = Bun.spawn(cmd, {

@@ -20,7 +20,6 @@ export default function ProviderPicker({
   onDismiss,
 }: ProviderPickerProps) {
   const t = useTheme();
-  // Start the highlight on the active provider.
   const [selected, setSelected] = useState(() =>
     Math.max(
       0,
@@ -29,7 +28,6 @@ export default function ProviderPicker({
   );
   const total = providerList.length;
 
-  // The picker owns navigation; App owns what happens on select/dismiss.
   useKeyboard((key) => {
     switch (key.name) {
       case "up":
@@ -70,7 +68,7 @@ export default function ProviderPicker({
       {providerList.map((p, i) => {
         const isSelected = i === selected;
         const ready = hasApiKey(p);
-        // OAuth providers "sign in" rather than take a key — label to match.
+        // OAuth providers "sign in" rather than take a key.
         const readyLabel = p.auth === "oauth" ? "signed in" : "key ✓";
         const needLabel = p.auth === "oauth" ? "sign in" : "key needed";
         return (

@@ -10,19 +10,16 @@ type ModelPickerProps = {
   current: string;
   onSelect: (model: string) => void;
   onSwitchProvider: () => void;
-  // Hop to the reasoning picker (^r) without leaving the /model flow — App
-  // reopens this picker when that one closes. Same idea as esc → provider.
+  // Hop to the reasoning picker without leaving the /model flow — App reopens
+  // this one when that closes.
   onSwitchReasoning: () => void;
-  // Current reasoning level, shown in the footer so ^r advertises what it
-  // would change rather than being a hidden keybinding.
+  // Shown in the footer so ^r advertises what it changes.
   reasoning: ReasoningLevel;
-  // Dismiss the picker straight back to chat — the quick exit that doesn't
-  // route through the provider picker / key prompt.
+  // The quick exit that doesn't route through the provider picker.
   onClose: () => void;
 };
 
-// How many rows are visible at once; the list scrolls to keep the highlight
-// in view rather than growing unbounded.
+// The list scrolls to keep the highlight in view rather than growing.
 const WINDOW = 8;
 
 export default function ModelPicker({
@@ -35,13 +32,13 @@ export default function ModelPicker({
   onClose,
 }: ModelPickerProps) {
   const t = useTheme();
-  // undefined while the first fetch is in flight; set once it resolves.
+  // undefined while the first fetch is in flight.
   const [result, setResult] = useState<FetchModelsResult | undefined>();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(0);
 
-  // Fetch on mount. Cached after the first call (or primed at key-paste), so
-  // this is usually instant; the loading state covers the cold path.
+  // Usually instant (cached or primed at key-paste); the loading state covers
+  // the cold path.
   useEffect(() => {
     let live = true;
     fetchModels(provider.id).then((r) => {
@@ -54,8 +51,7 @@ export default function ModelPicker({
 
   const all = useMemo(() => (result?.ok ? result.models : []), [result]);
 
-  // Case-insensitive substring filter. Re-derived on every keystroke; the
-  // highlight is reset to the top by the input handler so it never points
+  // The highlight is reset to the top by the input handler, so it never points
   // past the shortened list.
   const matches = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -63,8 +59,8 @@ export default function ModelPicker({
   }, [all, filter]);
 
   useKeyboard((key) => {
-    // ^r before the switch: the filter <input> is focused, so a bare letter has
-    // to stay available for type-ahead. A ctrl chord never collides with it.
+    // A ctrl chord, because the filter <input> is focused and a bare letter has
+    // to stay available for type-ahead.
     if (key.ctrl && key.name === "r") {
       key.preventDefault();
       onSwitchReasoning();
@@ -81,9 +77,9 @@ export default function ModelPicker({
         break;
       case "return":
         key.preventDefault();
-        // Prefer the highlighted match; otherwise fall back to the typed
-        // text so a manual id still works when the list is empty (fetch
-        // failed, or a filter that matches nothing but is itself valid).
+        // Fall back to the typed text so a manual id still works when the list
+        // is empty (fetch failed, or a filter matching nothing but itself
+        // valid).
         if (matches[selected]) {
           onSelect(matches[selected]);
         } else if (filter.trim()) {
@@ -95,9 +91,8 @@ export default function ModelPicker({
         onSwitchProvider();
         break;
       case "q":
-        // Quit straight back to chat — but only on a pristine (empty) filter,
-        // so a literal "q" can still start a type-ahead (e.g. "qwen"). With
-        // text present, fall through and let the focused input receive it.
+        // Only on a pristine filter, so a literal "q" can still start a
+        // type-ahead ("qwen"). With text present, let the input receive it.
         if (filter === "") {
           key.preventDefault();
           onClose();
@@ -106,7 +101,6 @@ export default function ModelPicker({
     }
   });
 
-  // Scroll the fixed window so `selected` stays visible.
   const start = Math.max(
     0,
     Math.min(selected - WINDOW + 1, matches.length - WINDOW),
@@ -126,7 +120,6 @@ export default function ModelPicker({
       width="70%"
       maxWidth={72}
     >
-      {/* Type-ahead filter — focused so keystrokes narrow the list. */}
       <input
         value={filter}
         focused
@@ -137,7 +130,6 @@ export default function ModelPicker({
         focusedTextColor={t.text}
         onInput={(value: string) => {
           setFilter(value);
-          // Reset the highlight to the top of the freshly filtered list.
           setSelected(0);
         }}
       />
@@ -179,9 +171,8 @@ export default function ModelPicker({
         </box>
       )}
 
-      {/* Footer hints — esc is repurposed to hop to the provider picker so
-          the user can change provider without leaving the /model flow, and ^r
-          does the same for the reasoning level. Both return here on close. */}
+      {/* esc and ^r are repurposed to hop to the provider and reasoning
+          pickers without leaving the /model flow; both return here. */}
       <text fg={t.textDim} marginTop={1}>
         ↵ select ⋅ esc switch provider ⋅ ^r thinking ({reasoning}) ⋅ q quit
       </text>

@@ -1,14 +1,8 @@
-// User configuration — pure disk I/O, no React, no TUI.
-// Front-end agnostic (like session.ts) so a future CLI / neovim core can
-// share it.
-//
 // Lives at ~/.sydcli/config.json — a plain, hand-editable file. Deliberately
-// NOT auth.json: that one holds secrets under chmod 600 with an atomic-write
-// ceremony (see auth.ts). This holds only non-secret preferences the user is
-// meant to `cd ~ && $EDITOR` freely, so it stays an ordinary file.
+// NOT auth.json: that one holds secrets under 0600 with an atomic-write
+// ceremony. This holds only non-secret preferences, so it stays ordinary.
 //
-// Precedence, mirroring auth.ts's "real env wins" rule:
-//   built-in defaults  <  config.json  <  live session changes (/model, /auto)
+// Precedence: built-in defaults < config.json < live session changes.
 // The file only seeds startup; nothing here writes it back.
 
 import { homedir } from "node:os";
@@ -34,34 +28,27 @@ import {
 
 const CONFIG_FILE = join(homedir(), ".sydcli", "config.json");
 
-// The resolved, complete configuration. Every field on disk is optional;
-// loadConfig fills the gaps so callers always get a whole object.
+// Every field on disk is optional; loadConfig fills the gaps so callers always
+// get a whole object.
 export type Config = {
   provider: ProviderId;
   model: string;
   autoApprove: boolean;
-  // Whether syd may run shell commands (the runCommand tool). Off by default —
-  // it's opt-in because a shell command has no path-containment safety net.
-  // Toggled in /settings, which persists it here.
+  // Opt-in because a shell command has no path-containment safety net.
   shellEnabled: boolean;
-  // MCP servers to connect at startup, keyed by a short name that also
-  // namespaces the server's tools. Empty when none are configured.
+  // Keyed by a short name that also namespaces the server's tools.
   mcpServers: Record<string, McpServerConfig>;
-  // Reusable user instructions invoked with @<name> in a message. Empty when
-  // none are defined. Sorted by name so the /skills list and @ palette have a
-  // stable order regardless of file/insertion order.
+  // Sorted by name, so the /skills list and @ palette have a stable order
+  // regardless of insertion order.
   skills: Skill[];
-  // The active color theme's id (see theme.ts). Always a known id — an unknown
-  // or missing value resolves to the default at load time.
+  // Always a known id — an unknown value resolves to the default at load.
   theme: string;
-  // How hard the model should think (see reasoning.ts). "default" sends no
-  // reasoning option at all, which is what keeps non-reasoning models working.
+  // "default" sends no reasoning option at all, which is what keeps
+  // non-reasoning models working.
   reasoning: ReasoningLevel;
 };
 
-// Built-in fallbacks, used when the file is absent, corrupt, or partial.
-// These match App.tsx's previous hardcoded startup defaults so no-config
-// behavior is unchanged.
+// Used when the file is absent, corrupt, or partial.
 const DEFAULT_PROVIDER: ProviderId = "google";
 const DEFAULT_MODEL = "gemini-3.6-flash";
 
@@ -79,9 +66,8 @@ export function defaultConfig(): Config {
 }
 
 // --- mcpServers parsing -----------------------------------------------------
-// The whole block is validated defensively, entry by entry: a single malformed
-// server is skipped with a warning without discarding the others, mirroring how
-// the top-level fields degrade independently.
+// Validated entry by entry: one malformed server is skipped with a warning
+// without discarding the others.
 
 function parseTrust(
   name: string,
@@ -159,7 +145,6 @@ function parseOneServer(
     return null;
   }
 
-  // HTTP / SSE server.
   if (hasUrl) {
     let transport: "http" | "sse" = "http";
     if (obj.transport !== undefined) {
@@ -171,8 +156,7 @@ function parseOneServer(
         );
       }
     }
-    // auth — only "oauth" is meaningful; anything else falls back to header/no
-    // auth with a warning.
+    // Anything other than "oauth" falls back to header/no auth with a warning.
     let auth: "oauth" | undefined;
     if (obj.auth !== undefined) {
       if (obj.auth === "oauth") {
@@ -192,7 +176,6 @@ function parseOneServer(
     };
   }
 
-  // Stdio (subprocess) server.
   if (hasCommand) {
     if (obj.transport !== undefined && obj.transport !== "stdio") {
       warnings.push(
@@ -234,11 +217,9 @@ function parseMcpServers(
 }
 
 // --- skills parsing ---------------------------------------------------------
-// The `skills` object maps a handle to its instructions. Two on-disk shapes are
-// accepted for hand-editing convenience: a bare string ("review": "do X"), or an
-// object ("review": { "instructions": "do X" }). Each entry is validated
-// independently — a bad one is skipped with a warning, never fatal — and the key
-// is normalized through the same rule the rest of the app uses, so a
+// Two on-disk shapes are accepted for hand-editing convenience: a bare string
+// ("review": "do X") or an object ("review": { "instructions": "do X" }). The
+// key is normalized through the same rule the rest of the app uses, so a
 // hand-written "My Skill" still lands as a legal @handle.
 
 function parseSkills(value: unknown, warnings: string[]): Skill[] {
@@ -287,8 +268,8 @@ function parseSkills(value: unknown, warnings: string[]): Skill[] {
       continue;
     }
     seen.add(name);
-    // Clamp rather than reject: a slightly-too-long body still works, and
-    // silently dropping the skill would be more surprising than truncating it.
+    // Clamp rather than reject — silently dropping the skill would be more
+    // surprising than truncating it.
     const body =
       trimmed.length > MAX_SKILL_INSTRUCTIONS
         ? trimmed.slice(0, MAX_SKILL_INSTRUCTIONS)
@@ -299,18 +280,15 @@ function parseSkills(value: unknown, warnings: string[]): Skill[] {
   return out;
 }
 
-// Where the config file lives — exposed so a /help line or error can point the
-// user at the exact path.
+// Exposed so a /help line or error can point at the exact path.
 export function configPath(): string {
   return CONFIG_FILE;
 }
 
-// Load the user config, defensively. The file is hand-editable and may be
-// missing, corrupt, or partial — this never throws. Each field is validated
-// independently and a bad one falls back to its default WITHOUT discarding the
-// others, so a single typo doesn't wipe the whole config. Returns the resolved
-// Config plus human-readable warnings the caller can surface in the transcript
-// (empty when the file is simply absent — no config is the normal case).
+// Never throws. Each field is validated independently and a bad one falls back
+// to its default WITHOUT discarding the others, so one typo doesn't wipe the
+// config. Warnings are empty when the file is simply absent — no config is the
+// normal case.
 export async function loadConfig(): Promise<{
   config: Config;
   warnings: string[];
@@ -321,9 +299,8 @@ export async function loadConfig(): Promise<{
   try {
     raw = await Bun.file(CONFIG_FILE).json();
   } catch {
-    // Missing / unreadable / not-JSON → pure defaults, silently. A syntax
-    // error is worth flagging, though, so distinguish the two: only warn if
-    // the file actually exists.
+    // Missing / unreadable / not-JSON → pure defaults. Only warn when the file
+    // actually exists, so a syntax error is still flagged.
     if (await Bun.file(CONFIG_FILE).exists()) {
       warnings.push(
         `config.json isn't valid JSON — ignoring it (${configPath()})`,
@@ -338,7 +315,7 @@ export async function loadConfig(): Promise<{
   }
   const obj = raw as Record<string, unknown>;
 
-  // provider — must be a known id.
+  // provider
   let provider = DEFAULT_PROVIDER;
   if (obj.provider !== undefined) {
     if (typeof obj.provider === "string" && isProviderId(obj.provider)) {
@@ -352,9 +329,8 @@ export async function loadConfig(): Promise<{
     }
   }
 
-  // model — any non-empty string. When absent, fall back to the chosen
-  // provider's own default so a "provider only" config lands on a valid model
-  // rather than a mismatched one.
+  // model — absent falls back to the chosen provider's own default, so a
+  // "provider only" config lands on a valid model rather than a mismatched one.
   const providerHadModel =
     obj.provider !== undefined && provider !== DEFAULT_PROVIDER;
   let model = providerHadModel
@@ -370,7 +346,7 @@ export async function loadConfig(): Promise<{
     }
   }
 
-  // autoApprove — a boolean. Off is the safe default (writes ask first).
+  // autoApprove — off is the safe default (writes ask first).
   let autoApprove = false;
   if (obj.autoApprove !== undefined) {
     if (typeof obj.autoApprove === "boolean") {
@@ -380,8 +356,7 @@ export async function loadConfig(): Promise<{
     }
   }
 
-  // shellEnabled — a boolean. Off is the safe default (no shell access until
-  // the user opts in via /settings).
+  // shellEnabled — off is the safe default.
   let shellEnabled = false;
   if (obj.shellEnabled !== undefined) {
     if (typeof obj.shellEnabled === "boolean") {
@@ -391,14 +366,14 @@ export async function loadConfig(): Promise<{
     }
   }
 
-  // mcpServers — validated entry by entry; bad entries are skipped, not fatal.
+  // mcpServers
   const mcpServers = parseMcpServers(obj.mcpServers, warnings);
 
-  // skills — same entry-by-entry discipline; a bad skill never poisons the rest.
+  // skills
   const skills = parseSkills(obj.skills, warnings);
 
-  // theme — must be a known theme id; anything else falls back to the default
-  // rather than leaving the UI with no palette.
+  // theme — anything unknown falls back rather than leaving the UI with no
+  // palette.
   let theme = DEFAULT_THEME_NAME;
   if (obj.theme !== undefined) {
     if (typeof obj.theme === "string" && isThemeName(obj.theme)) {
@@ -407,10 +382,9 @@ export async function loadConfig(): Promise<{
       typeof obj.theme === "string" &&
       isRetiredThemeName(obj.theme)
     ) {
-      // A theme that shipped once and was removed. The stored preference is
-      // legitimate history, not a typo, so it migrates to the default quietly —
-      // warning here would nag on every launch about a choice the user can no
-      // longer make. The key is rewritten the next time they pick a theme.
+      // A theme that shipped once and was removed. Legitimate history, not a
+      // typo, so it migrates quietly — warning would nag every launch about a
+      // choice the user can no longer make.
       theme = DEFAULT_THEME_NAME;
     } else {
       warnings.push(
@@ -421,10 +395,9 @@ export async function loadConfig(): Promise<{
     }
   }
 
-  // reasoning — one of the canonical levels. An unrecognized value falls back
-  // to "default" (send nothing), which is the safe end of the scale: the worst
-  // case is that a model thinks at its own default rather than a request being
-  // rejected for an effort the provider doesn't know.
+  // reasoning — an unrecognized value falls back to "default" (send nothing),
+  // the safe end: the worst case is a model thinking at its own default, not a
+  // request rejected for an effort the provider doesn't know.
   let reasoning = DEFAULT_REASONING_LEVEL;
   if (obj.reasoning !== undefined) {
     if (isReasoningLevel(obj.reasoning)) {
@@ -454,13 +427,10 @@ export async function loadConfig(): Promise<{
 }
 
 // --- Writing config.json ----------------------------------------------------
-// Unlike loadConfig (which only reads and fills defaults), these mutate the
-// file for the in-app /mcp-add and /mcp-remove commands. They read the RAW
-// object and touch only mcpServers, so keys this module doesn't model (or hasn't
-// yet) survive round-trips. Not a secret file, so a plain write — auth.json's
-// 0600 ceremony is deliberately not used here.
+// These read the RAW object and touch only their own key, so keys this module
+// doesn't model survive round-trips. Plain writes — auth.json's 0600 ceremony
+// is deliberately not used, since nothing here is secret.
 
-// Read the file as a plain object, or {} when absent/corrupt/not-an-object.
 async function readRawConfig(): Promise<Record<string, unknown>> {
   try {
     const raw = await Bun.file(CONFIG_FILE).json();
@@ -478,21 +448,17 @@ async function writeRawConfig(obj: Record<string, unknown>): Promise<void> {
   await Bun.write(CONFIG_FILE, JSON.stringify(obj, null, 2) + "\n");
 }
 
-// Serialize every read-modify-write of config.json. Each writer below runs its
-// whole read → mutate → write body inside this queue, so overlapping calls (the
-// model creating several skills in one turn, or a popup toggle landing mid-turn)
-// can't clobber each other. Bun is single-threaded, but the read (await) … write
-// (await) window still interleaves at await points — two writers reading the
-// same snapshot and both writing their +1 back is a classic lost update. An
-// async mutex built as a promise chain closes that window without a library.
+// Serializes every read-modify-write. Bun is single-threaded, but the
+// read (await) … write (await) window still interleaves at await points — two
+// writers reading the same snapshot and both writing their +1 back is a classic
+// lost update. This promise chain is an async mutex closing that window.
 let configWriteQueue: Promise<unknown> = Promise.resolve();
 
 function withConfigLock<T>(critical: () => Promise<T>): Promise<T> {
-  // Chain onto the tail so only one critical section runs at a time; `.then`
-  // with both handlers runs `critical` whether the prior holder settled ok or
-  // threw, so one failed write never wedges the queue. The stored tail is
-  // swallowed to a non-rejecting promise so the next caller doesn't inherit a
-  // rejection, while `run` still rejects for the actual caller that failed.
+  // `.then` with both handlers runs `critical` whether the prior holder settled
+  // or threw, so one failed write never wedges the queue. The stored tail is
+  // swallowed so the next caller doesn't inherit a rejection, while `run` still
+  // rejects for the caller that actually failed.
   const run = configWriteQueue.then(critical, critical);
   configWriteQueue = run.then(
     () => undefined,
@@ -501,8 +467,8 @@ function withConfigLock<T>(critical: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Pull the raw mcpServers object out of a raw config, or {} if it's missing or
-// the wrong shape (a corrupt block shouldn't crash an add/remove).
+// {} if missing or the wrong shape — a corrupt block shouldn't crash an
+// add/remove.
 function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
   const value = raw.mcpServers;
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -511,10 +477,8 @@ function rawMcpServers(raw: Record<string, unknown>): Record<string, unknown> {
   return {};
 }
 
-// Persist top-level scalar preferences (the /settings popup) without disturbing
-// mcpServers or any other key — same RAW round-trip discipline as the mcp
-// writers. Only fields present in `patch` are written, so a toggle of one
-// setting never rewrites the others.
+// Only fields present in `patch` are written, so toggling one setting never
+// rewrites the others.
 export async function saveSettings(patch: {
   autoApprove?: boolean;
   shellEnabled?: boolean;
@@ -529,9 +493,7 @@ export async function saveSettings(patch: {
   });
 }
 
-// Persist the active theme id without disturbing any other key — same RAW
-// round-trip discipline as saveSettings. The caller (the /theme picker) passes
-// an id already validated against THEMES.
+// The caller (the /theme picker) passes an id already validated against THEMES.
 export async function saveTheme(name: string): Promise<void> {
   return withConfigLock(async () => {
     const raw = await readRawConfig();
@@ -540,7 +502,6 @@ export async function saveTheme(name: string): Promise<void> {
   });
 }
 
-// Add or replace one MCP server in config.json, preserving every other key.
 export async function saveMcpServer(
   name: string,
   server: McpServerConfig,
@@ -554,8 +515,8 @@ export async function saveMcpServer(
   });
 }
 
-// Remove one MCP server from config.json. Returns false (no write) if it wasn't
-// there, so the caller can tell the user rather than silently succeeding.
+// Returns false (no write) if it wasn't there, so the caller can say so rather
+// than silently succeeding.
 export async function removeMcpServerFromConfig(
   name: string,
 ): Promise<boolean> {
@@ -570,8 +531,7 @@ export async function removeMcpServerFromConfig(
   });
 }
 
-// Pull the raw skills object out of a raw config, or {} if missing / wrong
-// shape — same defensive read as rawMcpServers.
+// Same defensive read as rawMcpServers.
 function rawSkills(raw: Record<string, unknown>): Record<string, unknown> {
   const value = raw.skills;
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
@@ -580,10 +540,8 @@ function rawSkills(raw: Record<string, unknown>): Record<string, unknown> {
   return {};
 }
 
-// Add or replace one skill in config.json, preserving every other key. Written
-// in the object form so a round-trip through loadConfig is lossless. The name
-// is assumed already normalized (the callers — the editor and the model tool —
-// normalize before persisting).
+// Written in the object form so a round-trip through loadConfig is lossless.
+// The name is assumed already normalized by the caller.
 export async function saveSkill(skill: Skill): Promise<void> {
   return withConfigLock(async () => {
     const raw = await readRawConfig();
@@ -594,8 +552,8 @@ export async function saveSkill(skill: Skill): Promise<void> {
   });
 }
 
-// Remove one skill from config.json. Returns false (no write) if it wasn't
-// there, so the caller can report "no such skill" instead of a silent success.
+// Returns false (no write) if it wasn't there, so the caller can report
+// "no such skill" instead of a silent success.
 export async function removeSkillFromConfig(name: string): Promise<boolean> {
   return withConfigLock(async () => {
     const raw = await readRawConfig();

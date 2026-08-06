@@ -5,11 +5,9 @@ import { useTheme } from "./themeContext";
 
 type ApprovalPromptProps = {
   request: ApprovalRequest;
-  // Called exactly once with the user's decision; App resolves the paused
-  // stream with it.
+  // Called exactly once; App resolves the paused stream with it.
   onDecide: (approved: boolean) => void;
-  // Approve this change AND switch to auto-approve for the rest of the session
-  // — the escape hatch for a multi-file change you've already committed to.
+  // The escape hatch for a multi-file change already committed to.
   onApproveAll: () => void;
 };
 
@@ -40,11 +38,9 @@ export default function ApprovalPrompt({
 
   const label = request.note?.label ?? `run ${request.tool}`;
 
-  // Fall back to pretty-printing the call's arguments only when we have no
-  // structured preview at all — i.e. an MCP tool (null note). File tools carry a
-  // diff, and the shell tool puts its command in the label, so in both cases the
-  // note already shows the concrete thing being authorized and the raw JSON args
-  // would just be noise. Empty/absent args → nothing to show.
+  // Only when there's no structured preview at all — an MCP tool. File tools
+  // carry a diff and the shell tool puts its command in the label, so the raw
+  // JSON would just be noise.
   const argsText =
     request.note == null && request.input != null
       ? formatArgs(request.input)
@@ -120,10 +116,9 @@ export default function ApprovalPrompt({
   );
 }
 
-// Pretty-print a tool call's arguments for the popup. Defensive: input is
-// whatever the model produced, so a value that can't be stringified (a cycle,
-// a bigint) falls back to a plain String() rather than throwing into the UI.
-// An empty object has nothing worth showing.
+// Defensive: input is whatever the model produced, so a value that can't be
+// stringified (a cycle, a bigint) falls back to String() rather than throwing
+// into the UI.
 function formatArgs(input: unknown): string | null {
   if (input && typeof input === "object" && Object.keys(input).length === 0) {
     return null;

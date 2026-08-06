@@ -4,18 +4,15 @@ import { TextAttributes } from "@opentui/core";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "./themeContext";
 
-// One tool as shown in the reference window: its (bare, un-namespaced) name and
-// the server-authored description. Both come from the connected MCP server.
+// Both come from the connected MCP server.
 export type McpToolView = { name: string; description: string };
 
-// One server's section in the window.
 export type McpServerView = {
   name: string;
-  // Human-readable transport summary, e.g. "http https://…" or "stdio npx".
+  // e.g. "http https://…" or "stdio npx".
   where: string;
   trust: string;
-  // False when the server is configured but exposed no tools (failed to
-  // connect, or genuinely empty).
+  // False when configured but exposing no tools (failed, or genuinely empty).
   connected: boolean;
   tools: McpToolView[];
 };
@@ -25,24 +22,21 @@ type McpToolsPopupProps = {
   onDismiss: () => void;
 };
 
-// How many rows one key-press scrolls in the tool view. Arrows nudge; page keys
-// jump. And how many server rows the list view shows before it windows.
+// Arrows nudge, page keys jump. And how many server rows the list shows.
 const STEP = 2;
 const PAGE = 12;
 const MAX_VISIBLE = 8;
 
-// The `/mcp` window, sibling to `/help`. Two read-only views so a long list of
-// servers doesn't turn into one giant scroll: a server picker (list), and the
-// tools of the chosen server (detail). Navigation is bidirectional — Enter
-// drills in, Escape/← steps back out (detail → list → closed). Purely
-// informational: it never runs a tool, so the detail view only scrolls.
+// Two read-only views so a long server list doesn't become one giant scroll.
+// Enter drills in, Escape/← steps back out. Purely informational — it never
+// runs a tool, so the detail view only scrolls.
 export default function McpToolsPopup({
   servers,
   onDismiss,
 }: McpToolsPopupProps) {
   const t = useTheme();
   const [mode, setMode] = useState<"list" | "detail">("list");
-  // Highlighted row in the list view; also the server opened in detail view.
+  // Also the server opened in detail view.
   const [selected, setSelected] = useState(0);
   const boxRef = useRef<ScrollBoxRenderable | null>(null);
   const total = servers.length;
@@ -72,7 +66,6 @@ export default function McpToolsPopup({
       return;
     }
 
-    // Detail view: scroll the chosen server's tools, or step back to the list.
     const box = boxRef.current;
     switch (key.name) {
       case "escape":
@@ -137,8 +130,7 @@ export default function McpToolsPopup({
   );
 }
 
-// The server picker: one highlighted row per server with its transport, trust,
-// and connection status. Windowed like SessionPicker so many servers scroll.
+// Windowed like SessionPicker so many servers scroll.
 function ServerList({
   servers,
   selected,
@@ -161,8 +153,7 @@ function ServerList({
   const hiddenAbove = start;
   const hiddenBelow = total - (start + visible.length);
 
-  // Align the server names into a column, capped so one long name can't blow
-  // the popup out to full width.
+  // Capped so one long name can't blow the popup out to full width.
   const nameWidth = Math.min(
     servers.reduce((w, s) => Math.max(w, s.name.length), 0),
     28,
@@ -207,8 +198,6 @@ function ServerList({
   );
 }
 
-// The chosen server's tools, scrollable. Mirrors the old single-server section:
-// bare tool name plus the server-authored description.
 function ToolList({
   server,
   boxRef,

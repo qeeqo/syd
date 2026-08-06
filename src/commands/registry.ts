@@ -34,8 +34,6 @@ const rename: Command = {
 const model: Command = {
   name: "model",
   description: "Pick a model (live list), or switch directly by name",
-  // No arg → open the picker (live models for the current provider); an arg
-  // → switch directly, which stays scriptable and works offline.
   run: (args, ctx) => ctx.setModel(args.trim() || undefined),
 };
 
@@ -54,8 +52,6 @@ const copy: Command = {
 const auto: Command = {
   name: "auto",
   description: "Toggle auto-approve of file edits (/auto on|off to set)",
-  // Bare `/auto` flips the mode; an explicit on/off is scriptable and
-  // unambiguous. Anything else is a usage nudge rather than a silent no-op.
   run: (args, ctx) => {
     const arg = args.trim().toLowerCase();
     if (!arg) return ctx.toggleAutoApprove();
@@ -84,9 +80,8 @@ const theme: Command = {
 
 const thinking: Command = {
   name: "thinking",
-  description: "Set how hard the model reasons (default, off, low, medium, high)",
-  // No arg → open the picker; an arg → set directly, so it stays scriptable
-  // like /model and /provider. App validates the name and reports a bad one.
+  description:
+    "Set how hard the model reasons (default, off, low, medium, high)",
   run: (args, ctx) => ctx.setReasoning(args.trim() || undefined),
 };
 
@@ -178,9 +173,6 @@ export const commands: Record<string, Command> = {
   quit: exit,
 };
 
-// Unique commands for the suggestion palette — the `commands` record maps
-// several keys to the same object (e.g. quit → exit), so dedupe by reference
-// to avoid showing an alias as its own entry. Insertion order is preserved.
 export const commandList: Command[] = [...new Set(Object.values(commands))];
 
 export function dispatch(input: string, ctx: CommandContext) {

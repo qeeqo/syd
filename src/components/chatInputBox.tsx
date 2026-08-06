@@ -8,31 +8,25 @@ import type { Skill } from "../skills";
 import type { ReasoningLevel } from "../reasoning";
 
 type chatInputBoxProps = {
-  // The session name. Rendered as the inverted chip below the input — the only
-  // place it appears, so it reads as the one piece of session identity.
+  // Rendered as the inverted chip below the input — the only place it appears.
   title: string;
-  // Active model id, shown at the left of the indicator row. The banner in
-  // chatMain also shows it, but only while the transcript is empty — this is
-  // the one place it stays visible during a conversation.
+  // chatMain's banner also shows it, but only while the transcript is empty.
   model: string;
-  // Active reasoning level. Rendered only when it isn't "default", so the row
-  // stays quiet unless the user has deliberately changed how hard syd thinks.
+  // Rendered only when it isn't "default", so the row stays quiet unless the
+  // user deliberately changed it.
   reasoning: ReasoningLevel;
-  // Auto-approve mode is on — shown beside the session chip so the current
-  // safety posture is always visible, not hidden state.
+  // Shown beside the session chip so the safety posture is never hidden state.
   autoApprove: boolean;
-  // Shell access is enabled — shown alongside auto-approve so the fact that syd
-  // can run commands is never hidden state.
+  // Same — that syd can run commands must never be hidden state.
   shellEnabled: boolean;
-  // Defined skills, for the @-mention autocomplete palette.
   skills: Skill[];
-  // False while a popup (e.g. the /resume picker) owns the keyboard.
+  // False while a popup owns the keyboard.
   focused: boolean;
   onSubmit: (message: string) => void;
 };
 
-// Match while the user is still typing the command name: a leading "/" with no
-// space yet. Once they type a space they're into args, so the palette closes.
+// Matches only while the command name is still being typed — once a space is
+// typed the user is into args, so the palette closes.
 function commandQuery(draft: string): string | null {
   if (!draft.startsWith("/")) return null;
   const rest = draft.slice(1);
@@ -40,10 +34,8 @@ function commandQuery(draft: string): string | null {
   return rest;
 }
 
-// The @handle currently being typed at the caret (end of draft): the text after
-// the last "@", when that "@" starts the message or follows whitespace and no
-// space has been typed since. Null closes the palette. A command draft ("/…")
-// never triggers it, so the two palettes are mutually exclusive.
+// Null closes the palette. A command draft ("/…") never triggers it, so the two
+// palettes are mutually exclusive.
 function mentionQuery(draft: string): { at: number; query: string } | null {
   if (draft.startsWith("/")) return null;
   const at = draft.lastIndexOf("@");
@@ -55,14 +47,11 @@ function mentionQuery(draft: string): { at: number; query: string } | null {
   return { at, query: rest };
 }
 
-// The session chip is sized by its text, and /rename accepts a title of any
-// length, so a long one would push the indicator row past the terminal width.
-// Clamp what's drawn (never the stored title) to keep the row stable.
+// /rename accepts any length, so clamp what's *drawn* (never the stored title)
+// to keep the indicator row from running past the terminal width.
 const MAX_CHIP_CHARS = 32;
 
-// Same reasoning for the model id, which the picker lets the user type freely
-// and which some providers make genuinely long
-// ("gemini-2.5-flash-native-audio-preview-09-2025").
+// Same for the model id, which some providers make genuinely long.
 const MAX_MODEL_CHARS = 30;
 
 function clamp(text: string, max: number): string {
@@ -96,8 +85,7 @@ export default function ChatInputBox({
       : commandList.filter((c) => c.name.startsWith(query.toLowerCase()));
   const commandPaletteOpen = !dismissed && matches.length > 0;
 
-  // Only look for an @mention when the command palette isn't already claiming
-  // the draft (mutually exclusive by construction, but explicit is clearer).
+  // Mutually exclusive by construction, but explicit is clearer.
   const mention = commandPaletteOpen ? null : mentionQuery(draft);
   const mentionMatches =
     mention === null
@@ -124,17 +112,15 @@ export default function ChatInputBox({
     submit(draft);
   }
 
-  // Replace the in-progress @handle with the chosen skill and a trailing space,
-  // leaving the rest of the draft untouched so mentions work mid-sentence.
+  // Leaves the rest of the draft untouched, so mentions work mid-sentence.
   function completeMention(name: string) {
     if (mention === null) return;
     handleInput(`${draft.slice(0, mention.at)}@${name} `);
   }
 
-  // Palette navigation. These fire before the focused <input> handles the key
-  // (global keypress listeners run first in OpenTUI), so preventDefault stops
-  // the input from also acting on the key — no cursor moves, no stray submit.
-  // At most one palette is open; whichever it is drives the same keys.
+  // These fire before the focused <input> sees the key (global listeners run
+  // first in OpenTUI), so preventDefault stops it from also acting — no stray
+  // cursor moves or submits.
   useKeyboard((key) => {
     const active = commandPaletteOpen
       ? "command"
@@ -160,8 +146,8 @@ export default function ChatInputBox({
         break;
       case "return":
         key.preventDefault();
-        // A command runs immediately; a mention completes into the draft so the
-        // user can keep writing the message around it.
+        // A command runs immediately; a mention completes into the draft so
+        // the user can keep writing around it.
         if (active === "command") submit(`/${matches[selected].name}`);
         else completeMention(mentionMatches[selected].name);
         break;
@@ -179,10 +165,9 @@ export default function ChatInputBox({
       flexShrink={0}
       marginBottom={0}
     >
-      {/* Float the palette as an absolute overlay anchored just above the
-          input (4 rows tall: bordered input = 3 + model line = 1). Keeping it
-          out of flow means ChatMain doesn't resize when it opens, so the
-          centered banner underneath stays put. */}
+      {/* Out of flow, so opening the palette doesn't resize ChatMain and shift
+          the banner underneath. bottom=4 clears the bordered input (3) plus the
+          indicator row (1). */}
       {commandPaletteOpen && (
         <box position="absolute" left={0} bottom={4}>
           <CommandSuggestions items={matches} selectedIndex={selected} />
@@ -209,10 +194,9 @@ export default function ChatInputBox({
           />
         </box>
       </box>
-      {/* Indicator row: identity on the left (what syd is about to answer
-          with), posture and session on the right. space-between splits them so
-          neither group's width depends on the other's. The left group shrinks
-          first — a long model id gives ground before the session chip does. */}
+      {/* space-between splits the two groups so neither's width depends on the
+          other. The left group shrinks first — a long model id gives ground
+          before the session chip does. */}
       <box flexDirection="row" justifyContent="space-between" gap={1}>
         <box flexDirection="row" gap={1} flexShrink={1}>
           <text fg={t.textDim}>{clamp(model, MAX_MODEL_CHARS)}</text>
@@ -223,12 +207,9 @@ export default function ChatInputBox({
         <box flexDirection="row" gap={1} flexShrink={0}>
           {shellEnabled && <text fg={t.success}>shell</text>}
           {autoApprove && <text fg={t.warning}>auto-approve</text>}
-          {/* Inverted chip: the brightest text colour becomes the fill, the
-              app background the ink. No width is set, so flexbox sizes the box
-              to its content and the block hugs the title exactly; paddingX
-              supplies the one-cell gutter. flexShrink={0} keeps it from being
-              squeezed by the indicators to its left. Theme tokens rather than a
-              literal white so it stays readable on every theme. */}
+          {/* Content-sized, so the block hugs the title exactly and paddingX
+              supplies the gutter. Theme tokens rather than a literal white, so
+              it stays readable on every theme. */}
           <box backgroundColor={t.textStrong} paddingX={1} flexShrink={0}>
             <text fg={t.inverseText}>{chipTitle}</text>
           </box>

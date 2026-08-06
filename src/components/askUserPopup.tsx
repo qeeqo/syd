@@ -5,19 +5,14 @@ import { useTheme } from "./themeContext";
 
 type AskUserPopupProps = {
   request: AskUserRequest;
-  // Resolve the paused turn with the chosen/typed answer.
   onAnswer: (answer: string) => void;
-  // Dismiss without answering — App resolves the tool with a "dismissed" note
-  // so the model can proceed instead of hanging.
+  // App resolves the tool with a "dismissed" note so the model proceeds
+  // instead of hanging.
   onDismiss: () => void;
 };
 
-// The generic "syd asks you" popup: the model calls the askUser tool with a
-// question and options, this renders them, and the user's choice flows back as
-// the tool's result. A reusable interaction primitive — syd decides the content
-// at runtime, so this component only knows how to present a question, never what
-// it's for. Options are a highlightable list (↑↓/↵); when the tool set
-// allowInput, a final "type your own" row focuses a free-text field.
+// A reusable interaction primitive: syd decides the content at runtime, so this
+// only knows how to present a question, never what it's for.
 export default function AskUserPopup({
   request,
   onAnswer,
@@ -25,7 +20,7 @@ export default function AskUserPopup({
 }: AskUserPopupProps) {
   const t = useTheme();
   const { question, options, allowInput } = request;
-  // The custom-answer row (when allowed) sits just past the last option.
+  // The custom-answer row sits just past the last option.
   const customIndex = allowInput ? options.length : -1;
   const total = options.length + (allowInput ? 1 : 0);
   const [selected, setSelected] = useState(0);
@@ -44,9 +39,8 @@ export default function AskUserPopup({
         setSelected((i) => (i + 1) % total);
         break;
       case "return":
-        // On an option row, resolve with that option. On the custom row, let
-        // the focused input's onSubmit handle it (don't preventDefault), so the
-        // typed text — not the row — is what gets submitted.
+        // On the custom row, let the focused input's onSubmit handle it (don't
+        // preventDefault), so the typed text is what gets submitted.
         if (!onCustomRow) {
           key.preventDefault();
           onAnswer(options[selected]);
