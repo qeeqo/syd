@@ -64,7 +64,7 @@ export default function CommandSuggestions({
       )}
       <text fg={t.textHint} marginTop={1}>
         {" "}
-        ↑↓ navigate · ↵ run · tab complete · esc dismiss
+        ↵ run · tab complete · esc dismiss
       </text>
     </box>
   );

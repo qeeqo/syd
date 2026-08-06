@@ -124,10 +124,14 @@ export default function ModelPicker({
         value={filter}
         focused
         placeholder="type to filter…"
+        placeholderColor={t.textHint}
         backgroundColor={t.appBg}
         focusedBackgroundColor={t.appBg}
-        textColor={t.text}
-        focusedTextColor={t.text}
+        textColor={t.textStrong}
+        focusedTextColor={t.textStrong}
+        cursorColor={t.accent}
+        selectionBg={t.selectionBg}
+        selectionFg={t.textSelected}
         onInput={(value: string) => {
           setFilter(value);
           setSelected(0);

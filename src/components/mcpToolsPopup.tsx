@@ -123,8 +123,8 @@ export default function McpToolsPopup({
 
       <text fg={t.textDim} marginTop={1}>
         {mode === "list"
-          ? "↑↓ select · ↵ open · esc close"
-          : "↑↓ scroll · PgUp/PgDn page · ←/esc back"}
+          ? "↵ open · esc close"
+          : "PgUp/PgDn page · ←/esc back"}
       </text>
     </box>
   );

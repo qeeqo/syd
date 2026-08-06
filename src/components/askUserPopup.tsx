@@ -111,8 +111,14 @@ export default function AskUserPopup({
               <input
                 value={draft}
                 placeholder="…"
+                placeholderColor={t.textHint}
                 focused={onCustomRow}
                 flexGrow={1}
+                textColor={t.textStrong}
+                focusedTextColor={t.textStrong}
+                cursorColor={t.accent}
+                selectionBg={t.selectionBg}
+                selectionFg={t.textSelected}
                 onInput={setDraft}
                 onSubmit={submitCustom}
               />
@@ -123,8 +129,8 @@ export default function AskUserPopup({
 
       <text fg={t.textDim} marginTop={1}>
         {onCustomRow
-          ? "type an answer · ↵ send · ↑↓ back to options · esc dismiss"
-          : "↑↓ select · ↵ choose · esc dismiss"}
+          ? "type an answer · ↵ send · esc dismiss"
+          : "↵ choose · esc dismiss"}
       </text>
     </box>
   );

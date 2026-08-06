@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { SyntaxStyle, TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { Message, SystemTone } from "../commands/type";
 import type { ThemeTokens } from "../theme.ts";
@@ -23,6 +23,45 @@ function mixColor(a: string, b: string, ratio: number): string {
       .toString(16)
       .padStart(2, "0");
   return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
+}
+
+function createSyntaxStyle(t: ThemeTokens): SyntaxStyle {
+  return SyntaxStyle.fromStyles({
+    default: { fg: t.text },
+    conceal: { fg: t.textFaint },
+
+    // Tree-sitter capture groups used inside fenced code blocks. OpenTUI falls
+    // back from names such as function.call to their registered base group.
+    keyword: { fg: t.accent, bold: true },
+    string: { fg: t.success },
+    comment: { fg: t.textDim, italic: true },
+    number: { fg: t.warning },
+    boolean: { fg: t.warningBright },
+    constant: { fg: t.warning },
+    function: { fg: t.info },
+    constructor: { fg: t.info, bold: true },
+    type: { fg: t.warningBright },
+    variable: { fg: t.text },
+    property: { fg: t.textSecondary },
+    operator: { fg: t.accent },
+    punctuation: { fg: t.textSecondary },
+    attribute: { fg: t.info },
+    tag: { fg: t.danger },
+    label: { fg: t.warning },
+    module: { fg: t.info },
+
+    // Markdown prose surrounding code blocks.
+    "markup.heading": { fg: t.accent, bold: true },
+    "markup.strong": { bold: true },
+    "markup.italic": { fg: t.info, italic: true },
+    "markup.strikethrough": { fg: t.textMuted, dim: true },
+    "markup.raw": { fg: t.successBright },
+    "markup.link": { fg: t.textDim },
+    "markup.link.label": { fg: t.accent, underline: true },
+    "markup.link.url": { fg: t.textDim, underline: true },
+    "markup.quote": { fg: t.textSecondary, italic: true },
+    "markup.list": { fg: t.accent },
+  });
 }
 
 // A left border, not a glyph prefixed to the text: the border is drawn for the
@@ -100,9 +139,11 @@ export default function ChatMain({
   streaming,
   model,
 }: ChatMainProps) {
-  // Lazily, because it can only be built after the renderer's native lib is up.
-  const [syntaxStyle] = useState(() => SyntaxStyle.create());
   const t = useTheme();
+  // SyntaxStyle owns a native handle. Recreate it for a live theme preview and
+  // release the old handle after React commits the replacement.
+  const syntaxStyle = useMemo(() => createSyntaxStyle(t), [t]);
+  useEffect(() => () => syntaxStyle.destroy(), [syntaxStyle]);
 
   return (
     <box

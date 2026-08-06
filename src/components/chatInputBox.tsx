@@ -163,6 +163,7 @@ export default function ChatInputBox({
       position="relative"
       flexDirection="column"
       flexShrink={0}
+      marginX={1}
       marginBottom={0}
     >
       {/* Out of flow, so opening the palette doesn't resize ChatMain and shift
@@ -179,7 +180,7 @@ export default function ChatInputBox({
         </box>
       )}
       <box
-        border={["top", "bottom"]}
+        border
         borderColor={t.inputBorder}
         flexDirection="column"
       >
@@ -189,6 +190,11 @@ export default function ChatInputBox({
             focused={focused}
             paddingLeft={1}
             flexGrow={1}
+            textColor={t.textStrong}
+            focusedTextColor={t.textStrong}
+            cursorColor={t.accent}
+            selectionBg={t.selectionBg}
+            selectionFg={t.textSelected}
             onInput={handleInput}
             onSubmit={handleSubmit}
           />

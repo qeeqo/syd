@@ -199,10 +199,9 @@ const system: Theme = {
     // Tinted even here: it marks who said what, and the band hugs the text so
     // it covers little enough for the terminal to still show through.
     userBg: "#1b3326",
-    // Opaque on purpose: a popup with no fill lets the transcript show through
-    // its text (both unreadable), and an unfilled selected row has no highlight
-    // at all.
-    panelBg: "#16181d",
+    // Popup surfaces preserve the terminal's own transparency in this theme.
+    // Selected rows remain opaque below so keyboard focus is still visible.
+    panelBg: "transparent",
     selectionBg: "#2c3340",
     // A transparent diff is an unreadable diff.
     diffAddBg: "#1e3a26",

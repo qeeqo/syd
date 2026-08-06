@@ -92,7 +92,7 @@ export default function ThemePicker({
       })}
 
       <text fg={t.textDim} marginTop={1}>
-        ↑↓ preview · ↵ apply · esc cancel
+        esc cancel
       </text>
     </box>
   );

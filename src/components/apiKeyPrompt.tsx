@@ -74,6 +74,9 @@ export default function ApiKeyPrompt({
         focusedTextColor={BG}
         backgroundColor={BG}
         focusedBackgroundColor={BG}
+        cursorColor={BG}
+        selectionBg={BG}
+        selectionFg={BG}
         onInput={(value: string) => {
           setDraft(value);
           setError(null);

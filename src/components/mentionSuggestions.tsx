@@ -72,7 +72,7 @@ export default function MentionSuggestions({
       )}
       <text fg={t.textHint} marginTop={1}>
         {" "}
-        ↑↓ navigate · ↵/tab insert · esc dismiss
+        ↵/tab insert · esc dismiss
       </text>
     </box>
   );

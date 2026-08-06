@@ -119,7 +119,6 @@ export default function ReasoningPicker({
       })}
 
       <text fg={t.textDim} marginTop={1}>
-        ↑↓ move · ↵ apply ·{" "}
         {returnsToModels ? "esc back to models" : "esc cancel"}
       </text>
     </box>

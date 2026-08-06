@@ -214,7 +214,7 @@ export default function SkillsPopup({
         {mode === "list"
           ? confirmDelete
             ? `press d again to delete @${confirmDelete} · esc cancel`
-            : "↑↓ select · ↵ edit · n new · d delete · esc close"
+            : "↵ edit · n new · d delete · esc close"
           : "tab switch field · ^s save · esc cancel"}
       </text>
     </box>
@@ -347,9 +347,15 @@ function SkillEditor({
         <input
           value={titleDraft}
           placeholder="e.g. review"
+          placeholderColor={t.textHint}
           focused={nameFocused}
           paddingLeft={1}
           flexGrow={1}
+          textColor={t.textStrong}
+          focusedTextColor={t.textStrong}
+          cursorColor={t.accent}
+          selectionBg={t.selectionBg}
+          selectionFg={t.textSelected}
           onInput={onTitleInput}
           onSubmit={onTitleSubmit}
         />
@@ -368,9 +374,15 @@ function SkillEditor({
           ref={textRef}
           initialValue={initialInstructions}
           placeholder="Describe what syd should do…"
+          placeholderColor={t.textHint}
           focused={!nameFocused}
           paddingLeft={1}
           flexGrow={1}
+          textColor={t.textStrong}
+          focusedTextColor={t.textStrong}
+          cursorColor={t.accent}
+          selectionBg={t.selectionBg}
+          selectionFg={t.textSelected}
         />
       </box>
 

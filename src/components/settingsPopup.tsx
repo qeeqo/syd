@@ -117,7 +117,7 @@ export default function SettingsPopup({
       })}
 
       <text fg={t.textDim} marginTop={1}>
-        ↑↓ select · ↵ change · esc close
+        ↵ change · esc close
       </text>
     </box>
   );
