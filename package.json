@@ -1,7 +1,17 @@
 {
   "name": "syd",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "An agentic AI coding assistant for the terminal, with human approval in front of every change.",
+  "license": "MIT",
+  "author": "qeeqo",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qeeqo/syd.git"
+  },
+  "homepage": "https://github.com/qeeqo/syd#readme",
+  "bugs": "https://github.com/qeeqo/syd/issues",
+  "keywords": ["ai", "cli", "tui", "agent", "mcp", "bun", "opentui"],
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/main.tsx",
