@@ -5,8 +5,7 @@ skills, opt-in shell access, and a themed TUI, with human approval in front of
 anything that changes your machine.
 
 <p align="center">
-  <img src="assets/demo1.png" alt="demo1" width="600">
-</p>
+  <img src="assets/demo1.png" alt="demo1" width="700">
 
 > [!NOTE]
 > **syd is alpha and not installable yet.** There is no published package and no
@@ -36,7 +35,7 @@ anything that changes your machine.
 ### Themes
 
 <p align="center">
-  <img src="assets/set-themes.gif" alt="Selecting a Syd theme" width="600">
+  <img src="assets/set-themes.gif" alt="Selecting a Syd theme" width="700">
 </p>
 
 All themes (Solarized, Catppuccin, and Gruvbox)
@@ -44,9 +43,9 @@ All themes (Solarized, Catppuccin, and Gruvbox)
 <p align="center">
   <img src="assets/solarized.png" alt="Syd Solarized theme" width="400">
   <img src="assets/catpuccin.png" alt="Syd Catppuccin theme" width="400">
+  <img src="assets/gruvbox.png" alt="Syd Gruvbox theme" width="400">
 </p>
 <p align="center">
-  <img src="assets/gruvbox.png" alt="Syd Gruvbox theme" width="400">
 </p>
 
 ## Running it from source
