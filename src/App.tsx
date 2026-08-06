@@ -170,8 +170,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
       setMcp(runtime);
-      // Quiet on success, so a clean startup keeps the home banner. A warning is
-      // the only on-screen signal that tools are missing.
+      // Only surface warnings; successful startup should preserve the home banner.
       if (runtime.warnings.length > 0) {
         setMessages((prev) => [
           ...prev,
@@ -250,7 +249,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return true;
   }
 
-  // Callers own the mcpGuard() check and the mcpBusy flag.
   async function reconnectMcp(): Promise<McpRuntime> {
     const { config: fresh, warnings } = await loadConfig();
     for (const w of warnings) ctx.addSystemMessage(w, "warn");
@@ -280,9 +278,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
 
   async function removeSkill(name: string): Promise<boolean> {
     const removed = await removeSkillFromConfig(name);
-    // Purge from live state even when disk reported "not there", so a drift
-    // between the two self-heals instead of leaving an unremovable row.
-    // `removed` still reflects the disk result for the model tool's reply.
+    // Purge live state even if disk misses so drift self-heals; return the disk result.
     if (skillsRef.current.some((s) => s.name === name)) {
       const next = skillsRef.current.filter((s) => s.name !== name);
       skillsRef.current = next;
@@ -322,7 +318,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
       setSessionTitle("New Chat");
       setMessages([]);
-      // New id/timestamps, so it saves to a fresh file.
       metaRef.current = createSession(provider, model);
     },
     resumeSession: async (id) => {
@@ -331,7 +326,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
 
-      // Only sessions started in THIS directory are offered.
       const cwd = process.cwd();
 
       if (!id) {
@@ -564,7 +558,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
     },
     copyLastResponse: async () => {
-      // A mid-stream copy would grab a half-finished response.
       if (isStreaming) {
         ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
@@ -609,7 +602,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
 
   function applyProvider(next: Provider) {
     if (!hasApiKey(next)) {
-      // handleKeySubmit re-applies once the key lands.
       setKeyPrompt(next);
       return;
     }
@@ -631,12 +623,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
   }
 
-  // Returns an error string (prompt stays open and shows it) or null on success.
+  // Returning an error keeps the prompt open.
   async function handleKeySubmit(
     target: Provider,
     key: string,
   ): Promise<string | null> {
-    // Also narrows the union so target.envVar below is well-typed.
     if (target.auth !== "api-key") return `${target.label} does not use a key`;
     const verdict = await verifyApiKey(target, key);
     if (verdict === "invalid") {
@@ -659,7 +650,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     return null;
   }
 
-  // Returns an error string (prompt stays open and shows it) or null on success.
+  // Returning an error keeps the prompt open.
   async function handleOAuthLogin(target: Provider): Promise<string | null> {
     try {
       const { url, result } = await startChatGPTLogin();
@@ -673,8 +664,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     }
     setKeyPrompt(null);
     ctx.addSystemMessage(`signed in to ${target.label}`);
-    // Fail loudly here rather than on the user's first prompt. Not a block —
-    // auth succeeded, and they can pick another model in the picker that follows.
+    // Verify now so authentication failures surface before the first real prompt.
     const problem = await verifyChatGPTAccess(target.defaultModel);
     if (problem) {
       ctx.addSystemMessage(
@@ -709,8 +699,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     metaRef.current = session;
   }
 
-  // Called by the flush timer, before any mid-stream insert, and once at turn
-  // settle, so coalescing never drops or reorders text.
+  // Every stream insertion flushes first so buffered text stays ordered.
   function flushDelta() {
     if (flushHandle.current !== null) {
       clearTimeout(flushHandle.current);
@@ -731,11 +720,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // Keeps mid-stream entries in chronological order: the note lands after what
-  // the model has said so far, and a fresh placeholder re-opens below it so
-  // later text continues underneath rather than stacking above.
+  // Flush current text before the note, then reopen a placeholder for later text.
   function insertDuringStream(msg: Message) {
-    // Land buffered text on the current bubble before the note splits it.
     flushDelta();
     setMessages((prev) => {
       const last = prev[prev.length - 1];
@@ -747,9 +733,21 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  async function handleSubmit(message: string) {
-    if (dispatch(message, ctx)) return;
+  // Returns false when the draft should be kept in the input rather than sent.
+  function handleSubmit(message: string): boolean {
+    if (dispatch(message, ctx)) return true;
+    // A second concurrent turn would overwrite abortRef and the parked approval
+    // resolver, orphaning the first turn's promise and interleaving both
+    // streams into one bubble.
+    if (isStreaming) {
+      ctx.addSystemMessage("wait for the current response to finish", "warn");
+      return false;
+    }
+    void runTurn(message);
+    return true;
+  }
 
+  async function runTurn(message: string) {
     // Injected into the system prompt for this turn only, never sticky.
     const invokedSkills = findMentionedSkills(message, skills);
 
@@ -808,9 +806,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           });
         },
         onApprovalRequest: (request) =>
-          // runCommand always prompts, even under auto-approve: auto-applying a
-          // diff you can see is one thing, silently running arbitrary shell (no
-          // path containment) is a far bigger blast radius.
+          // Never auto-approve runCommand: shell execution has no path containment.
           autoApproveRef.current && request.tool !== "runCommand"
             ? Promise.resolve(true)
             : new Promise<boolean>((resolve) => {
@@ -832,7 +828,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       if (askUserResolve.current) {
         settleUserAnswer("(the question was cancelled)");
       }
-      // Nothing stranded in the buffer when the markdown re-parses.
+      // Flush before settling so no buffered output is lost.
       flushDelta();
       setIsStreaming(false);
       // A turn ending on a tool call re-opened an empty placeholder, which
@@ -858,8 +854,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     if (backToModels) setModelPickerOpen(true);
   }
 
-  // A save failure is surfaced but doesn't roll back — the level still applies
-  // this session.
+  // Persistence failure does not roll back this session's value.
   function applyReasoning(next: ReasoningLevel, announce = true) {
     setReasoningState(next);
     if (announce) ctx.addSystemMessage(`thinking set to ${next}`);
@@ -869,8 +864,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     });
   }
 
-  // A save failure is surfaced but doesn't roll back — the setting still
-  // applies this session.
+  // Persistence failure does not roll back this session's value.
   function toggleSetting(key: string) {
     const reportSaveError = (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -886,15 +880,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       setAutoApproveState(next);
       void saveSettings({ autoApprove: next }).catch(reportSaveError);
     } else if (key === "reasoning") {
-      // A choice, not a toggle: step forward through the scale and wrap. No
-      // system note — the popup row already shows the new value.
+      // The popup row is sufficient feedback; avoid adding a transcript note.
       const levels = REASONING_LEVELS;
       const next = levels[(levels.indexOf(reasoning) + 1) % levels.length];
       applyReasoning(next, false);
     }
   }
 
-  // Built from live state, so the popup re-renders on every change.
   const settingItems: SettingItem[] = [
     {
       kind: "toggle",
@@ -979,7 +971,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           focused={!overlayOpen}
           onSubmit={handleSubmit}
         />
-        {/* Absolute so a popup floats above the chat without reflowing it. */}
         {pickerSessions && (
           <box
             position="absolute"

@@ -1,8 +1,4 @@
-// Security invariants:
-//   - auth.json is chmod 600, ~/.sydcli is 700.
-//   - Written tmp + rename, with the tmp locked down BEFORE it becomes the real
-//     file — no window where keys are world-readable.
-//   - Key values are never logged, rendered, or included in errors.
+// Secret values must never be surfaced in logs, UI, or errors.
 
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -67,7 +63,6 @@ async function readStore(): Promise<Record<string, string>> {
     if (typeof data !== "object" || data === null || Array.isArray(data)) {
       return {};
     }
-    // Anything non-string is a corrupt or tampered entry.
     const store: Record<string, string> = {};
     for (const [envVar, value] of Object.entries(data)) {
       if (typeof value === "string") store[envVar] = value;
@@ -78,7 +73,6 @@ async function readStore(): Promise<Record<string, string>> {
   }
 }
 
-// The single writer, so the 0600/atomicity invariants live in one place.
 async function writeStore(store: Record<string, string>): Promise<void> {
   await mkdir(AUTH_DIR, { recursive: true, mode: 0o700 });
   const tmp = `${AUTH_FILE}.tmp`;
@@ -95,10 +89,7 @@ export async function saveApiKey(envVar: string, key: string): Promise<void> {
   process.env[envVar] = key;
 }
 
-// --- Generic secret blobs ---------------------------------------------------
-// Share auth.json so they inherit its 0600 / atomic-write guarantees, but stay
-// out of the envVar namespace and out of process.env, so they can't leak into a
-// subprocess. Callers own their key namespace ("mcp-oauth:<server>:tokens").
+// Blob keys stay out of process.env so they cannot leak to child processes.
 
 export async function readAuthBlob(key: string): Promise<string | undefined> {
   return (await readStore())[key];
@@ -118,9 +109,7 @@ export async function deleteAuthBlob(key: string): Promise<void> {
   }
 }
 
-// --- ChatGPT OAuth tokens ---------------------------------------------------
-
-// The file is user-editable, so parse defensively; null means signed out.
+// Malformed user-edited token data fails closed as signed out.
 async function loadChatGPTTokens(): Promise<ChatGPTTokens | null> {
   const raw = (await readStore())[CHATGPT_STORE_KEY];
   if (!raw) return null;
@@ -139,7 +128,7 @@ async function loadChatGPTTokens(): Promise<ChatGPTTokens | null> {
       };
     }
   } catch {
-    // Corrupt entry → treat as signed out.
+    return null;
   }
   return null;
 }
@@ -151,8 +140,7 @@ export async function saveChatGPTTokens(tokens: ChatGPTTokens): Promise<void> {
   setActiveChatGPT({ access: tokens.access, accountId: tokens.accountId });
 }
 
-// Refresh responses can drop the account-id claim, so the previous one is
-// carried forward. Throws if signed out or the refresh fails.
+// Refresh responses may omit account ID, so preserve the previous claim.
 export async function getChatGPTAccessToken(): Promise<{
   access: string;
   accountId: string | null;
@@ -172,7 +160,6 @@ export async function getChatGPTAccessToken(): Promise<{
   return { access: refreshed.access, accountId: refreshed.accountId };
 }
 
-// No-op for key providers (the SDK reads env); OAuth refreshes if needed.
 export async function ensureProviderReady(id: ProviderId): Promise<void> {
   if (providers[id].auth === "oauth") await getChatGPTAccessToken();
 }
@@ -186,7 +173,7 @@ export async function applyStoredKeys(): Promise<void> {
       process.env[provider.envVar] = store[provider.envVar];
     }
   }
-  // No network here — refresh is deferred to first actual use.
+  // Defer network refresh until first use to keep startup offline.
   const tokens = await loadChatGPTTokens();
   if (tokens) {
     setActiveChatGPT({ access: tokens.access, accountId: tokens.accountId });

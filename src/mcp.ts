@@ -1,9 +1,5 @@
-// Fail-soft throughout: a server that won't connect, hangs, or exposes a bad
-// entry becomes a warning and is skipped — it never throws into the TUI.
-//
-// Trust model: every server's tools are approval-gated by default. An MCP tool
-// can do anything and its definition comes from a source we don't control.
-// `"trust": "trusted"` is the escape hatch for a server the user owns.
+// Per-server failures warn and skip. Gate externally defined tools unless the
+// user explicitly marks their server trusted.
 
 import {
   createMCPClient,
@@ -14,8 +10,6 @@ import { Experimental_StdioMCPTransport as StdioMCPTransport } from "@ai-sdk/mcp
 import type { ToolSet } from "ai";
 import { startupAuthProvider, hasMcpTokens } from "./mcpOAuth";
 
-// "trusted" runs a server's tools without a prompt, like the read-only local
-// tools.
 export type McpTrust = "prompt" | "trusted";
 
 export type StdioServer = {
@@ -32,40 +26,30 @@ export type HttpServer = {
   url: string;
   headers?: Record<string, string>;
   trust?: McpTrust;
-  // "oauth" → interactive login (src/mcpOAuth.ts) instead of static headers.
   auth?: "oauth";
 };
 
 export type McpServerConfig = StdioServer | HttpServer;
 
 export type McpRuntime = {
-  // Keyed `<server>__<tool>`, ready to spread beside the local tools.
   tools: ToolSet;
-  // Tools that must pass through the approval popup — everything from a
-  // non-trusted server.
   gated: string[];
-  // Kept so the app can close them, and their subprocesses, on exit.
+  // Retained for subprocess/socket cleanup on exit.
   clients: MCPClient[];
-  // Surfaced by the caller as opening system messages.
   warnings: string[];
 };
 
-// A slow or wedged server must not block startup. Generous, because a cold
-// `npx` download of a server package can be slow the first time.
+// Allow cold npx installs, but do not let a wedged server block startup.
 const CONNECT_TIMEOUT_MS = 20_000;
 
 // So one server that won't close cleanly can't stall exit or a /mcp reload.
 const CLOSE_TIMEOUT_MS = 2_000;
 
-// Kept here so callers don't hand-roll the shape.
 export function emptyMcpRuntime(): McpRuntime {
   return { tools: {} as ToolSet, gated: [], clients: [], warnings: [] };
 }
 
-// Secrets live in the shell / .env — which auth.ts already loads — rather than
-// in the hand-editable, unprotected config.json. An unset variable expands to ""
-// and is reported, so a typo fails visibly instead of silently sending an empty
-// credential. `warnings` is appended to in place.
+// Resolve ${VAR} references at connect time and warn when they expand empty.
 function expandEnv(value: string, where: string, warnings: string[]): string {
   return value.replace(
     /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g,
@@ -93,8 +77,7 @@ function expandRecord(
   return out;
 }
 
-// A stdio server becomes a subprocess transport, which inherits PATH/HOME so
-// `npx`-style commands resolve.
+// The SDK transport preserves PATH/HOME, allowing npx-style commands.
 function buildTransport(
   name: string,
   server: McpServerConfig,
@@ -109,8 +92,7 @@ function buildTransport(
         `server "${name}" headers`,
         warnings,
       ),
-      // The startup variant refuses to open a browser, so a missing token
-      // surfaces as a "needs login" warning rather than a popup mid-launch.
+      // Startup auth must not open a browser before the TUI exists.
       ...(server.auth === "oauth"
         ? { authProvider: startupAuthProvider(name) }
         : {}),
@@ -152,78 +134,104 @@ async function connectWithTimeout(config: MCPClientConfig): Promise<MCPClient> {
   }
 }
 
-// Never throws: a per-server failure is caught, warned, and skipped so the
-// other servers keep working.
+// Namespaced entries rather than a map, so the caller merges them in config
+// order and duplicate resolution can't depend on who finished first.
+type ServerResult = {
+  entries: [string, unknown][];
+  client?: MCPClient;
+  warnings: string[];
+};
+
+// Never rejects — a failed server is a warning, not an aborted startup, which
+// also keeps one bad server from settling the whole Promise.all early.
+async function connectServer(
+  name: string,
+  server: McpServerConfig,
+): Promise<ServerResult> {
+  const warnings: string[] = [];
+  const entries: [string, unknown][] = [];
+
+  if (
+    "url" in server &&
+    server.auth === "oauth" &&
+    !(await hasMcpTokens(name))
+  ) {
+    warnings.push(`mcp: server "${name}" needs login — run /mcp login ${name}`);
+    return { entries, warnings };
+  }
+
+  let client: MCPClient | undefined;
+  try {
+    const transport = buildTransport(name, server, warnings);
+    client = await connectWithTimeout({
+      transport,
+      // Errors are handled per server below; suppress the SDK's process-level callback.
+      onUncaughtError: () => {},
+    });
+    const serverTools = await client.tools();
+
+    for (const [toolName, toolDef] of Object.entries(serverTools)) {
+      entries.push([`${name}__${toolName}`, toolDef]);
+    }
+    return { entries, client, warnings };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Translate the SDK's refresh failure into an actionable login warning.
+    if (msg.includes("authorization required")) {
+      warnings.push(`mcp: server "${name}" needs login — run /mcp login ${name}`);
+    } else {
+      warnings.push(`mcp: server "${name}" failed — ${msg}`);
+    }
+    // So a server that connected but failed on tools() doesn't leak.
+    if (client) await client.close().catch(() => {});
+    return { entries, warnings };
+  }
+}
+
 export async function connectMcpServers(
   servers: Record<string, McpServerConfig> | undefined,
 ): Promise<McpRuntime> {
-  // Loose map because MCP tools are dynamically-schema'd, which the invariant
-  // ToolSet index type rejects on per-key assignment. Widened at the return.
+  // MCP's dynamic schemas require a wider map during per-key assignment.
   const tools: Record<string, unknown> = {};
   const gated: string[] = [];
   const clients: MCPClient[] = [];
   const warnings: string[] = [];
 
   if (servers) {
-    for (const [name, server] of Object.entries(servers)) {
-      // Bound to fail without a token, so say so plainly and skip.
-      if (
-        "url" in server &&
-        server.auth === "oauth" &&
-        !(await hasMcpTokens(name))
-      ) {
-        warnings.push(`mcp: server "${name}" needs login — run /mcp login ${name}`);
-        continue;
-      }
+    const declared = Object.entries(servers);
+    // Connected concurrently: each server carries its own 20s timeout, so
+    // startup costs the slowest one rather than the sum of them all.
+    const results = await Promise.all(
+      declared.map(([name, server]) => connectServer(name, server)),
+    );
 
-      let client: MCPClient | undefined;
-      try {
-        const transport = buildTransport(name, server, warnings);
-        client = await connectWithTimeout({
-          transport,
-          // Must not become an unhandled rejection that kills the process.
-          onUncaughtError: () => {},
-        });
-        const serverTools = await client.tools();
+    // Merged in config order, so tool precedence and warning order stay
+    // deterministic no matter what order the connects resolved in.
+    declared.forEach(([name, server], i) => {
+      const result = results[i];
+      warnings.push(...result.warnings);
+      if (result.client) clients.push(result.client);
 
-        let added = 0;
-        for (const [toolName, toolDef] of Object.entries(serverTools)) {
-          const key = `${name}__${toolName}`;
-          if (key in tools) {
-            warnings.push(`mcp: duplicate tool ${key} — skipping the later one`);
-            continue;
-          }
-          tools[key] = toolDef;
-          if (server.trust !== "trusted") gated.push(key);
-          added++;
+      let added = 0;
+      for (const [key, toolDef] of result.entries) {
+        if (key in tools) {
+          warnings.push(`mcp: duplicate tool ${key} — skipping the later one`);
+          continue;
         }
-        clients.push(client);
-        if (added === 0) {
-          warnings.push(`mcp: server "${name}" connected but exposed no tools`);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        // A stored token that can't be refreshed lands here — surface it as a
-        // re-login prompt, not a scary failure.
-        if (msg.includes("authorization required")) {
-          warnings.push(
-            `mcp: server "${name}" needs login — run /mcp login ${name}`,
-          );
-        } else {
-          warnings.push(`mcp: server "${name}" failed — ${msg}`);
-        }
-        // So a server that connected but failed on tools() doesn't leak.
-        if (client) await client.close().catch(() => {});
+        tools[key] = toolDef;
+        if (server.trust !== "trusted") gated.push(key);
+        added++;
       }
-    }
+      if (result.client && added === 0) {
+        warnings.push(`mcp: server "${name}" connected but exposed no tools`);
+      }
+    });
   }
 
   return { tools: tools as ToolSet, gated, clients, warnings };
 }
 
-// Swallows errors: a client that's already down must not stop the others from
-// closing. Bounded, because on exit the OS reclaims the socket anyway and a
-// server that hangs its own close must never hold the app hostage.
+// Close independently and bound shutdown so a dead client cannot block exit.
 export async function closeMcpClients(
   clients: MCPClient[],
   timeoutMs: number = CLOSE_TIMEOUT_MS,

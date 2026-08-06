@@ -10,16 +10,11 @@ type ModelPickerProps = {
   current: string;
   onSelect: (model: string) => void;
   onSwitchProvider: () => void;
-  // Hop to the reasoning picker without leaving the /model flow — App reopens
-  // this one when that closes.
   onSwitchReasoning: () => void;
-  // Shown in the footer so ^r advertises what it changes.
   reasoning: ReasoningLevel;
-  // The quick exit that doesn't route through the provider picker.
   onClose: () => void;
 };
 
-// The list scrolls to keep the highlight in view rather than growing.
 const WINDOW = 8;
 
 export default function ModelPicker({
@@ -32,13 +27,10 @@ export default function ModelPicker({
   onClose,
 }: ModelPickerProps) {
   const t = useTheme();
-  // undefined while the first fetch is in flight.
   const [result, setResult] = useState<FetchModelsResult | undefined>();
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState(0);
 
-  // Usually instant (cached or primed at key-paste); the loading state covers
-  // the cold path.
   useEffect(() => {
     let live = true;
     fetchModels(provider.id).then((r) => {
@@ -51,8 +43,6 @@ export default function ModelPicker({
 
   const all = useMemo(() => (result?.ok ? result.models : []), [result]);
 
-  // The highlight is reset to the top by the input handler, so it never points
-  // past the shortened list.
   const matches = useMemo(() => {
     const q = filter.trim().toLowerCase();
     return q ? all.filter((m) => m.toLowerCase().includes(q)) : all;
@@ -77,9 +67,7 @@ export default function ModelPicker({
         break;
       case "return":
         key.preventDefault();
-        // Fall back to the typed text so a manual id still works when the list
-        // is empty (fetch failed, or a filter matching nothing but itself
-        // valid).
+        // Preserve manual IDs when discovery fails or filtering finds no match.
         if (matches[selected]) {
           onSelect(matches[selected]);
         } else if (filter.trim()) {
@@ -175,8 +163,6 @@ export default function ModelPicker({
         </box>
       )}
 
-      {/* esc and ^r are repurposed to hop to the provider and reasoning
-          pickers without leaving the /model flow; both return here. */}
       <text fg={t.textDim} marginTop={1}>
         ↵ select ⋅ esc switch provider ⋅ ^r thinking ({reasoning}) ⋅ q quit
       </text>
