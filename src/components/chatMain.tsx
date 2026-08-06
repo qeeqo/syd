@@ -1,6 +1,7 @@
 import { memo, useEffect, useState } from "react";
-import { SyntaxStyle, TextAttributes } from "@opentui/core";
-import type { Message } from "../commands/type";
+import { SyntaxStyle, TextAttributes, type BorderCharacters } from "@opentui/core";
+import type { Message, SystemTone } from "../commands/type";
+import type { ThemeTokens } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
 // The thinking indicator: a seed sprouting into a plant, one frame per tick.
@@ -42,6 +43,52 @@ function mixColor(a: string, b: string, ratio: number): string {
       .toString(16)
       .padStart(2, "0");
   return `#${c(ar, br)}${c(ag, bg)}${c(ab, bb)}`;
+}
+
+// --- system-notice gutter ---------------------------------------------------
+// System notices are drawn as a bordered box with only its left side enabled,
+// which makes the rule a *layout* feature rather than a character prefixed to
+// the text. That's the whole point: a glyph inside the <text> (the old "· ")
+// only marks the first line, so a notice long enough to wrap — "copy failed: …",
+// the MCP "if your browser didn't open, visit: <url>" pair, a config warning —
+// puts its continuation back at column 0 and the marker stops reading as one.
+// A border is drawn for the box's full measured height, so every wrapped line
+// keeps the rule.
+//
+// Only `vertical` is ever painted (no other side is enabled), but the
+// BorderCharacters contract wants the full set; the left-edge entries all carry
+// the rule so a corner never punches a hole in it, and the rest are spaces so
+// nothing bleeds in from the unused sides.
+const RULE = "▏";
+const RULE_CHARS: BorderCharacters = {
+  topLeft: RULE,
+  topRight: " ",
+  bottomLeft: RULE,
+  bottomRight: " ",
+  horizontal: " ",
+  vertical: RULE,
+  topT: RULE,
+  bottomT: RULE,
+  leftT: RULE,
+  rightT: " ",
+  cross: " ",
+};
+
+// Severity lives in the rule's colour alone — the text stays one uniform muted
+// grey at every tone. A failure is then findable by scanning one column instead
+// of reading, and the transcript never shouts a red sentence at the user for
+// something as ordinary as a bad `/rename` argument.
+function ruleColor(t: ThemeTokens, tone: SystemTone | undefined): string {
+  switch (tone) {
+    case "error":
+      return t.danger;
+    case "warn":
+      return t.warning;
+    default:
+      // Also the landing spot for a tone that survived from a future version's
+      // session file — unknown severity reads as neutral rather than crashing.
+      return t.textDim;
+  }
 }
 
 const GLOW_DOTS = 5;
@@ -246,11 +293,22 @@ const MessageBlock = memo(function MessageBlock({
         </box>
       );
     }
-    // Other system notices stay compact — a single dim line, no header.
+    // Other system notices: a quiet blockquote. No header and no marker in the
+    // text — the rule in the gutter is what says "this is the app talking, not
+    // the conversation", and its colour is what says how badly it went.
     return (
-      <text fg={t.textMuted} wrapMode="word">
-        · {message.content}
-      </text>
+      <box
+        flexDirection="column"
+        width="100%"
+        border={["left"]}
+        borderColor={ruleColor(t, message.tone)}
+        customBorderChars={RULE_CHARS}
+        paddingLeft={1}
+      >
+        <text fg={t.textMuted} wrapMode="word">
+          {message.content}
+        </text>
+      </box>
     );
   }
 

@@ -24,7 +24,7 @@ const rename: Command = {
   run: (args, ctx) => {
     const title = args.trim();
     if (!title) {
-      ctx.addSystemMessage("usage: /rename <new title>");
+      ctx.addSystemMessage("usage: /rename <new title>", "warn");
       return;
     }
     ctx.setSessionTitle(title);
@@ -60,7 +60,7 @@ const auto: Command = {
     const arg = args.trim().toLowerCase();
     if (!arg) return ctx.toggleAutoApprove();
     if (arg === "on" || arg === "off") return ctx.setAutoApprove(arg === "on");
-    ctx.addSystemMessage("usage: /auto [on|off]");
+    ctx.addSystemMessage("usage: /auto [on|off]", "warn");
   },
 };
 
@@ -100,7 +100,7 @@ const mcpLogin: Command = {
   run: (args, ctx) => {
     const server = args.trim();
     if (!server) {
-      ctx.addSystemMessage("usage: /mcp-login <server>");
+      ctx.addSystemMessage("usage: /mcp-login <server>", "warn");
       return;
     }
     return ctx.loginMcp(server);
@@ -114,11 +114,14 @@ const mcpAdd: Command = {
     const parts = args.trim().split(/\s+/).filter(Boolean);
     const [name, url, flag] = parts;
     if (!name || !url) {
-      ctx.addSystemMessage("usage: /mcp-add <name> <url> [oauth]");
+      ctx.addSystemMessage("usage: /mcp-add <name> <url> [oauth]", "warn");
       return;
     }
     if (flag !== undefined && flag !== "oauth") {
-      ctx.addSystemMessage('the third argument must be "oauth" or omitted');
+      ctx.addSystemMessage(
+        'the third argument must be "oauth" or omitted',
+        "error",
+      );
       return;
     }
     return ctx.addMcpServer(name, url, flag === "oauth");
@@ -131,7 +134,7 @@ const mcpRemove: Command = {
   run: (args, ctx) => {
     const name = args.trim();
     if (!name) {
-      ctx.addSystemMessage("usage: /mcp-remove <name>");
+      ctx.addSystemMessage("usage: /mcp-remove <name>", "warn");
       return;
     }
     return ctx.removeMcpServer(name);
@@ -178,7 +181,7 @@ export function dispatch(input: string, ctx: CommandContext) {
   const command = commands[name];
 
   if (!command) {
-    ctx.addSystemMessage(`unknown command: /${name}`);
+    ctx.addSystemMessage(`unknown command: /${name}`, "error");
     return true;
   }
 

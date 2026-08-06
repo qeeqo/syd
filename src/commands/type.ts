@@ -7,16 +7,39 @@ export type ToolNote = {
   diffText?: string;
 };
 
+// How a plain system notice reads. It drives only the colour of the gutter rule
+// drawn beside the message — never the text — so a transcript full of notices
+// stays quiet while a failure is still findable at a glance.
+//
+// Set explicitly at each call site rather than sniffed from the message text: a
+// substring check like content.includes("failed") is a heuristic that silently
+// mislabels ("no response to copy yet" is not an error, "removed X" is not a
+// success), and the caller always knows which of the three it meant.
+export type SystemTone = "note" | "warn" | "error";
+
+export const SYSTEM_TONES: readonly SystemTone[] = ["note", "warn", "error"];
+
+export function isSystemTone(value: unknown): value is SystemTone {
+  return (
+    typeof value === "string" && SYSTEM_TONES.includes(value as SystemTone)
+  );
+}
+
 export type Message = {
   role: "user" | "assistant" | "system";
   content: string;
   // Present only on system messages that record tool activity; drives the
-  // special ↳/diff rendering instead of the plain dim system line.
+  // special ↳/diff rendering instead of the plain gutter-rule system line.
   toolNote?: ToolNote;
+  // Only meaningful on a system message without a toolNote. Absent reads as
+  // "note" — the neutral grey rule.
+  tone?: SystemTone;
 };
 
 export type CommandContext = {
-  addSystemMessage: (text: string) => void;
+  // `tone` colours the gutter rule beside the notice; omit it for an ordinary
+  // confirmation or progress note.
+  addSystemMessage: (text: string, tone?: SystemTone) => void;
   newSession: () => void;
   // No id → list resumable sessions; id (or unique prefix) → resume that one.
   resumeSession: (id?: string) => void | Promise<void>;

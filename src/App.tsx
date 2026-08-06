@@ -79,7 +79,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // status chatter. These are system messages, so the save effect ignores them:
   // a warning alone never writes a session file.
   const [messages, setMessages] = useState<Message[]>(() =>
-    configWarnings.map((content) => ({ role: "system", content })),
+    configWarnings.map((content) => ({ role: "system", content, tone: "warn" })),
   );
   const [provider, setProvider] = useState<ProviderId>(config.provider);
   const [model, setModel] = useState(config.model);
@@ -212,6 +212,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           ...runtime.warnings.map((content) => ({
             role: "system" as const,
             content,
+            tone: "warn" as const,
           })),
         ]);
       }
@@ -267,7 +268,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         const msg = err instanceof Error ? err.message : String(err);
         setMessages((prev) => [
           ...prev,
-          { role: "system", content: `failed to save session: ${msg}` },
+          {
+            role: "system",
+            content: `failed to save session: ${msg}`,
+            tone: "error",
+          },
         ]);
       });
     // buildSession only reads state already listed here (plus stable refs).
@@ -279,11 +284,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // MCP op is running. Returns true when it's safe to proceed.
   function mcpGuard(): boolean {
     if (isStreaming) {
-      ctx.addSystemMessage("wait for the current response to finish");
+      ctx.addSystemMessage("wait for the current response to finish", "warn");
       return false;
     }
     if (mcpBusy.current) {
-      ctx.addSystemMessage("an MCP operation is already in progress");
+      ctx.addSystemMessage("an MCP operation is already in progress", "warn");
       return false;
     }
     return true;
@@ -295,12 +300,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // the mcpGuard() check and the mcpBusy flag.
   async function reconnectMcp(): Promise<McpRuntime> {
     const { config: fresh, warnings } = await loadConfig();
-    for (const w of warnings) ctx.addSystemMessage(w);
+    for (const w of warnings) ctx.addSystemMessage(w, "warn");
     await closeMcpClients(mcp.clients);
     const next = await connectMcpServers(fresh.mcpServers);
     setMcp(next);
     setMcpServers(fresh.mcpServers);
-    for (const w of next.warnings) ctx.addSystemMessage(w);
+    for (const w of next.warnings) ctx.addSystemMessage(w, "warn");
     return next;
   }
 
@@ -372,13 +377,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   };
 
   const ctx: CommandContext = {
-    addSystemMessage: (text) =>
-      setMessages((prev) => [...prev, { role: "system", content: text }]),
+    addSystemMessage: (text, tone) =>
+      setMessages((prev) => [...prev, { role: "system", content: text, tone }]),
     newSession: () => {
       // Swapping messages out mid-stream would let in-flight deltas append
       // onto the wrong transcript — refuse until the turn settles.
       if (isStreaming) {
-        ctx.addSystemMessage("wait for the current response to finish");
+        ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
       }
       setSessionTitle("New Chat");
@@ -388,7 +393,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     },
     resumeSession: async (id) => {
       if (isStreaming) {
-        ctx.addSystemMessage("wait for the current response to finish");
+        ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
       }
 
@@ -400,7 +405,10 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       if (!id) {
         const sessions = await listSessions(cwd);
         if (sessions.length === 0) {
-          ctx.addSystemMessage("no sessions to resume in this directory");
+          ctx.addSystemMessage(
+            "no sessions to resume in this directory",
+            "warn",
+          );
           return;
         }
         setPickerSessions(sessions);
@@ -409,12 +417,16 @@ export default function App({ config, configWarnings = [] }: AppProps) {
 
       const matches = await findSessionsByIdPrefix(id, cwd);
       if (matches.length === 0) {
-        ctx.addSystemMessage(`no session matching "${id}" in this directory`);
+        ctx.addSystemMessage(
+          `no session matching "${id}" in this directory`,
+          "warn",
+        );
         return;
       }
       if (matches.length > 1) {
         ctx.addSystemMessage(
           `"${id}" matches ${matches.length} sessions — add more characters`,
+          "warn",
         );
         return;
       }
@@ -447,6 +459,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           `unknown provider: ${id} (valid: ${providerList
             .map((p) => p.id)
             .join(", ")})`,
+          "error",
         );
         return;
       }
@@ -465,6 +478,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       if (Object.keys(mcpServers).length === 0) {
         ctx.addSystemMessage(
           `no MCP servers configured — add them under "mcpServers" in ${configPath()}`,
+          "warn",
         );
         return;
       }
@@ -481,7 +495,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`MCP reload failed: ${msg}`);
+        ctx.addSystemMessage(`MCP reload failed: ${msg}`, "error");
       } finally {
         mcpBusy.current = false;
       }
@@ -491,12 +505,14 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       if (!cfg) {
         ctx.addSystemMessage(
           `unknown MCP server "${server}" (configured: ${Object.keys(mcpServers).join(", ") || "none"})`,
+          "error",
         );
         return;
       }
       if (!("url" in cfg) || cfg.auth !== "oauth") {
         ctx.addSystemMessage(
           `"${server}" is not an OAuth server — login only applies to servers with "auth": "oauth"`,
+          "error",
         );
         return;
       }
@@ -519,7 +535,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`login to "${server}" failed: ${msg}`);
+        ctx.addSystemMessage(`login to "${server}" failed: ${msg}`, "error");
       } finally {
         mcpBusy.current = false;
       }
@@ -528,25 +544,27 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       // Names key the merged tool set as `<name>__<tool>`, so "__" in a name
       // would corrupt those keys.
       if (name.includes("__")) {
-        ctx.addSystemMessage('server name cannot contain "__"');
+        ctx.addSystemMessage('server name cannot contain "__"', "error");
         return;
       }
       let parsed: URL;
       try {
         parsed = new URL(url);
       } catch {
-        ctx.addSystemMessage(`not a valid URL: ${url}`);
+        ctx.addSystemMessage(`not a valid URL: ${url}`, "error");
         return;
       }
       if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
         ctx.addSystemMessage(
           "url must be http(s) — /mcp-add is for HTTP servers",
+          "error",
         );
         return;
       }
       if (name in mcpServers) {
         ctx.addSystemMessage(
           `"${name}" already exists — /mcp-remove ${name} first to replace it`,
+          "error",
         );
         return;
       }
@@ -573,11 +591,12 @@ export default function App({ config, configWarnings = [] }: AppProps) {
             count > 0
               ? `"${name}" ready — ${count} tool${count === 1 ? "" : "s"}`
               : `"${name}" added but exposed no tools (see warnings above)`,
+            count > 0 ? undefined : "warn",
           );
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`adding "${name}" failed: ${msg}`);
+        ctx.addSystemMessage(`adding "${name}" failed: ${msg}`, "error");
       } finally {
         mcpBusy.current = false;
       }
@@ -588,7 +607,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       try {
         const removed = await removeMcpServerFromConfig(name);
         if (!removed) {
-          ctx.addSystemMessage(`no MCP server "${name}" in config`);
+          ctx.addSystemMessage(`no MCP server "${name}" in config`, "warn");
           return;
         }
         ctx.addSystemMessage(`removed MCP server "${name}" — reconnecting…`);
@@ -596,7 +615,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         ctx.addSystemMessage(`"${name}" removed`);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`removing "${name}" failed: ${msg}`);
+        ctx.addSystemMessage(`removing "${name}" failed: ${msg}`, "error");
       } finally {
         mcpBusy.current = false;
       }
@@ -604,7 +623,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     copyLastResponse: async () => {
       // A mid-stream copy would grab a half-finished response.
       if (isStreaming) {
-        ctx.addSystemMessage("wait for the current response to finish");
+        ctx.addSystemMessage("wait for the current response to finish", "warn");
         return;
       }
       // The latest response can span several assistant bubbles (text split
@@ -621,7 +640,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       }
       const lastResponse = parts.join("\n\n");
       if (!lastResponse) {
-        ctx.addSystemMessage("no response to copy yet");
+        ctx.addSystemMessage("no response to copy yet", "warn");
         return;
       }
       try {
@@ -631,7 +650,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`copy failed: ${msg}`);
+        ctx.addSystemMessage(`copy failed: ${msg}`, "error");
       }
     },
     exit: () => {
@@ -740,6 +759,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     if (problem) {
       ctx.addSystemMessage(
         `heads up: a test call with ${target.defaultModel} was rejected — ${problem}. Try another model via /model.`,
+        "warn",
       );
     }
     applyProvider(target);
@@ -755,7 +775,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     setApproval(null);
     if (!approved) {
       const label = approval.request.note?.label ?? approval.request.tool;
-      insertDuringStream({ role: "system", content: `declined: ${label}` });
+      insertDuringStream({
+        role: "system",
+        content: `declined: ${label}`,
+        tone: "warn",
+      });
     }
   }
 
@@ -902,7 +926,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       // finally block leave its "cancelled" note.
       if (!controller.signal.aborted) {
         const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`error: ${msg}`);
+        ctx.addSystemMessage(`error: ${msg}`, "error");
       }
     } finally {
       const cancelled = controller.signal.aborted;
@@ -929,7 +953,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       // Leave a trace so a cancelled turn reads as deliberate, not as output
       // that mysteriously stopped. Whatever streamed before the cancel is kept.
       if (cancelled) {
-        ctx.addSystemMessage("response cancelled");
+        ctx.addSystemMessage("response cancelled", "warn");
       }
     }
   }
@@ -941,7 +965,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   function toggleSetting(key: string) {
     const reportSaveError = (err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      ctx.addSystemMessage(`failed to save settings: ${msg}`);
+      ctx.addSystemMessage(`failed to save settings: ${msg}`, "error");
     };
     if (key === "shell") {
       const next = !shellEnabled;
@@ -1144,13 +1168,13 @@ export default function App({ config, configWarnings = [] }: AppProps) {
               onSave={(skill, previousName) => {
                 void persistSkill(skill, previousName).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
-                  ctx.addSystemMessage(`failed to save skill: ${msg}`);
+                  ctx.addSystemMessage(`failed to save skill: ${msg}`, "error");
                 });
               }}
               onDelete={(name) => {
                 void removeSkill(name).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
-                  ctx.addSystemMessage(`failed to delete skill: ${msg}`);
+                  ctx.addSystemMessage(`failed to delete skill: ${msg}`, "error");
                 });
               }}
               onDismiss={() => setSkillsOpen(false)}
@@ -1257,7 +1281,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
                 // theme never reaches config.json.
                 void saveTheme(name).catch((err) => {
                   const msg = err instanceof Error ? err.message : String(err);
-                  ctx.addSystemMessage(`failed to save theme: ${msg}`);
+                  ctx.addSystemMessage(`failed to save theme: ${msg}`, "error");
                 });
               }}
               onDismiss={() => {

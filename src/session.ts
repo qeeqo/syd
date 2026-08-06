@@ -5,7 +5,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readdir, rename, unlink } from "node:fs/promises";
-import type { Message } from "./commands/type.ts";
+import { isSystemTone, type Message } from "./commands/type.ts";
 import { isProviderId, type ProviderId } from "./providers.ts";
 
 export type Session = {
@@ -50,6 +50,16 @@ function isMessage(value: unknown): value is Message {
   );
 }
 
+// `tone` is cosmetic (it picks a rule colour), so an unrecognized value from a
+// hand-edited file drops to the neutral default rather than failing the whole
+// session load — losing a transcript over a bad colour hint would be worse.
+function sanitizeMessage(m: Message): Message {
+  if (m.tone === undefined || isSystemTone(m.tone)) return m;
+  // JSON.stringify omits undefined-valued keys, so this doesn't reintroduce
+  // the bad field on the next save.
+  return { ...m, tone: undefined };
+}
+
 // Validate + normalize a raw disk value into a Session, or null if invalid.
 // `provider` may be absent (files saved before multi-provider support) and
 // defaults to google; a *present but unrecognized* provider fails the parse —
@@ -77,7 +87,7 @@ function parseSession(value: unknown): Session | null {
     title: s.title as string,
     provider: (s.provider as ProviderId | undefined) ?? "google",
     model: s.model as string,
-    messages: s.messages as Message[],
+    messages: (s.messages as Message[]).map(sanitizeMessage),
     cwd: s.cwd as string,
     createdAt: s.createdAt as number,
     updatedAt: s.updatedAt as number,
