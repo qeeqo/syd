@@ -131,8 +131,15 @@ export const providers: Record<ProviderId, Provider> = {
     label: "OpenAI (ChatGPT plan)",
     auth: "oauth",
     // Offline fallback; the live set remains account- and plan-dependent.
-    defaultModel: "gpt-5.5",
-    models: ["gpt-5.5", "gpt-5.4"],
+    defaultModel: "gpt-5.6-luna",
+    models: [
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+    ],
     // Private endpoint: client_version is mandatory and affects visibility, so send
     // a floor value, trust response flags, and always retain an offline fallback.
     listRequest: () => {

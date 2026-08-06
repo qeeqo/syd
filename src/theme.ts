@@ -47,9 +47,9 @@ export type Theme = {
   tokens: ThemeTokens;
 };
 
-const solarizedOsaka: Theme = {
-  name: "solarized-osaka",
-  label: "Solarized Osaka",
+const solarized: Theme = {
+  name: "solarized",
+  label: "Solarized",
   tokens: {
     appBg: "#002b36",
     transcriptBg: "#00212b",
@@ -167,15 +167,12 @@ const catppuccin: Theme = {
   },
 };
 
-// Transparent backgrounds preserve terminal blur. Foregrounds stay hex because
-// chatMain's color interpolation cannot parse indexed colors.
 const system: Theme = {
   name: "system",
   label: "System",
   tokens: {
     appBg: "transparent",
     transcriptBg: "transparent",
-    // Speaker, selection, and diff fills stay opaque so their cues survive transparency.
     userBg: "#1b3326",
     panelBg: "transparent",
     selectionBg: "#2c3340",
@@ -212,7 +209,7 @@ const system: Theme = {
 
 export const THEMES: Record<string, Theme> = {
   system,
-  "solarized-osaka": solarizedOsaka,
+  solarized,
   gruvbox,
   catppuccin,
 };

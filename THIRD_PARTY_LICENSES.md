@@ -27,9 +27,12 @@ The Solarized and Catppuccin notices are copied verbatim from each project's
 
 ## Solarized
 
-The "Solarized Osaka" theme is derived from Ethan Schoonover's Solarized palette.
+The "Solarized" theme uses Ethan Schoonover's original Solarized palette values.
 
 Source: https://github.com/altercation/solarized (`LICENSE`)
+
+Note: this is *not* the separate "Solarized Osaka" Neovim theme by craftzdog,
+which is a different project under Apache-2.0. None of its colors are used here.
 
 ```
 Copyright (c) 2011 Ethan Schoonover

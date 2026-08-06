@@ -42,8 +42,8 @@ export type Config = {
   reasoning: ReasoningLevel;
 };
 
-const DEFAULT_PROVIDER: ProviderId = "google";
-const DEFAULT_MODEL = "gemini-3.6-flash";
+const DEFAULT_PROVIDER: ProviderId = "openai-chatgpt";
+const DEFAULT_MODEL = "gpt-5.6-luna";
 
 export function defaultConfig(): Config {
   return {
@@ -355,10 +355,7 @@ export async function loadConfig(): Promise<{
   if (obj.theme !== undefined) {
     if (typeof obj.theme === "string" && isThemeName(obj.theme)) {
       theme = obj.theme;
-    } else if (
-      typeof obj.theme === "string" &&
-      isRetiredThemeName(obj.theme)
-    ) {
+    } else if (typeof obj.theme === "string" && isRetiredThemeName(obj.theme)) {
       // Retired themes migrate silently; warning on every launch would punish a
       // formerly valid choice.
       theme = DEFAULT_THEME_NAME;

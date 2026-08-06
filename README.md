@@ -1,14 +1,17 @@
 ## About
 
-> [!NOTE]
-> **syd is alpha and not installable yet.** There is no published package and no
-> release binary. It runs from source only, and things move around between
-> commits. The repository is public so the work can be read and followed — not
-> because it's ready to depend on.
-
 An agentic AI coding assistant for the terminal — MCP servers, user-defined
 skills, opt-in shell access, and a themed TUI, with human approval in front of
 anything that changes your machine.
+
+<p align="center">
+  <img src="assets/demo1.png" alt="demo1" width="600">
+</p>
+
+> [!NOTE]
+> **syd is alpha and not installable yet.** There is no published package and no
+> release binary. It runs from source only, and things move around between
+> commits. The repository is public but under active development.
 
 - **Streaming chat** in the terminal, backed by the [Vercel AI SDK](https://sdk.vercel.ai).
   Google, Anthropic, and OpenAI via API key; OpenAI also via ChatGPT OAuth.
@@ -27,6 +30,24 @@ anything that changes your machine.
   provider's own reasoning dialect.
 - **Themes** — role-based theming with bundled palettes, plus a `system` theme
   that inherits your terminal's own colors and transparency.
+
+## TUI
+
+### Themes
+
+<p align="center">
+  <img src="assets/set-themes.gif" alt="Selecting a Syd theme" width="600">
+</p>
+
+All themes (Solarized, Catppuccin, and Gruvbox)
+
+<p align="center">
+  <img src="assets/solarized.png" alt="Syd Solarized theme" width="400">
+  <img src="assets/catpuccin.png" alt="Syd Catppuccin theme" width="400">
+</p>
+<p align="center">
+  <img src="assets/gruvbox.png" alt="Syd Gruvbox theme" width="400">
+</p>
 
 ## Running it from source
 
@@ -49,7 +70,7 @@ OPENAI_API_KEY=...
 ```
 
 You can also add a key from inside syd with `/provider` — it's stored in
-`~/.sydcli/auth.json` with `0600` permissions, never in the repo.
+`~/.sydcli/auth.json` with permissions, never in the repo.
 
 ## Configuration
 
