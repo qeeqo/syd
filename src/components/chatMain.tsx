@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { SyntaxStyle, TextAttributes, type BorderCharacters } from "@opentui/core";
-import type { Message, SystemTone } from "../commands/type";
+import type { Entry, SystemTone } from "../commands/type";
 import type { ThemeTokens } from "../theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
@@ -123,13 +123,13 @@ function GlowLoader() {
 }
 
 type ChatMainProps = {
-  messages: Message[];
+  entries: Entry[];
   streaming: boolean;
   model: string;
 };
 
 export default function ChatMain({
-  messages,
+  entries,
   streaming,
   model,
 }: ChatMainProps) {
@@ -153,7 +153,7 @@ export default function ChatMain({
         flexDirection="column"
         flexGrow={1}
       >
-        {messages.length === 0 ? (
+        {entries.length === 0 ? (
           <SydBanner model={model} />
         ) : (
           /* Clip to the viewport; stickyScroll follows output until the user scrolls up. */
@@ -167,12 +167,12 @@ export default function ChatMain({
             verticalScrollbarOptions={{ visible: false }}
             contentOptions={{ flexDirection: "column", gap: 1, width: "100%" }}
           >
-            {messages.map((m, i) => (
-              <MessageBlock
+            {entries.map((entry, i) => (
+              <EntryBlock
                 key={i}
-                message={m}
+                entry={entry}
                 syntaxStyle={syntaxStyle}
-                streaming={streaming && i === messages.length - 1}
+                streaming={streaming && i === entries.length - 1}
               />
             ))}
           </scrollbox>
@@ -217,30 +217,30 @@ function SydBanner({ model }: { model: string }) {
   );
 }
 
-type MessageBlockProps = {
-  message: Message;
+type EntryBlockProps = {
+  entry: Entry;
   syntaxStyle: SyntaxStyle;
   streaming: boolean;
 };
 
 // Memoization prevents per-token scrollbox remeasurement; App preserves
-// references for unchanged messages.
-const MessageBlock = memo(function MessageBlock({
-  message,
+const EntryBlock = memo(function EntryBlock({
+  entry,
   syntaxStyle,
   streaming,
-}: MessageBlockProps) {
+}: EntryBlockProps) {
   const t = useTheme();
-  if (message.role === "system") {
-    if (message.toolNote) {
+
+  switch (entry.kind) {
+    case "tool":
       return (
         <box flexDirection="column" width="100%">
           <text fg={t.textSecondary} wrapMode="word">
-            ↳ {message.toolNote.label}
+            ↳ {entry.note.label}
           </text>
-          {message.toolNote.diffText && (
+          {entry.note.diffText && (
             <diff
-              diff={message.toolNote.diffText}
+              diff={entry.note.diffText}
               view="unified"
               wrapMode="none"
               showLineNumbers
@@ -257,57 +257,58 @@ const MessageBlock = memo(function MessageBlock({
           )}
         </box>
       );
-    }
-    return (
-      <box
-        flexDirection="column"
-        width="100%"
-        border={["left"]}
-        borderColor={ruleColor(t, message.tone)}
-        customBorderChars={RULE_CHARS}
-        paddingLeft={1}
-      >
-        <text fg={t.textMuted} wrapMode="word">
-          {message.content}
-        </text>
-      </box>
-    );
-  }
 
-  if (message.role === "assistant") {
-    return (
-      <box flexDirection="column" width="100%">
-        <box flexDirection="row" gap={1}>
-          <text fg={t.accent} attributes={TextAttributes.BOLD}>
-            syd
+    case "notice":
+      return (
+        <box
+          flexDirection="column"
+          width="100%"
+          border={["left"]}
+          borderColor={ruleColor(t, entry.tone)}
+          customBorderChars={RULE_CHARS}
+          paddingLeft={1}
+        >
+          <text fg={t.textMuted} wrapMode="word">
+            {entry.text}
           </text>
         </box>
-        <markdown
-          content={message.content}
-          syntaxStyle={syntaxStyle}
-          fg={t.text}
-          streaming={streaming}
-          width="100%"
-        />
-      </box>
-    );
-  }
+      );
 
-  // Keep user text verbatim. Content-size the tint, but wrap long messages at the container edge.
-  return (
-    <box
-      flexDirection="row"
-      alignSelf="flex-start"
-      maxWidth="100%"
-      backgroundColor={t.userBg}
-      paddingX={1}
-    >
-      <text fg={t.success} attributes={TextAttributes.BOLD}>
-        {"> "}
-      </text>
-      <text fg={t.textStrong} wrapMode="word">
-        {message.content}
-      </text>
-    </box>
-  );
+    case "assistant":
+      if (entry.text.length === 0) return null;
+      return (
+        <box flexDirection="column" width="100%">
+          <box flexDirection="row" gap={1}>
+            <text fg={t.accent} attributes={TextAttributes.BOLD}>
+              syd
+            </text>
+          </box>
+          <markdown
+            content={entry.text}
+            syntaxStyle={syntaxStyle}
+            fg={t.text}
+            streaming={streaming}
+            width="100%"
+          />
+        </box>
+      );
+
+    case "user":
+      return (
+        <box
+          flexDirection="row"
+          alignSelf="flex-start"
+          maxWidth="100%"
+          backgroundColor={t.userBg}
+          paddingX={1}
+        >
+          <text fg={t.success} attributes={TextAttributes.BOLD}>
+            {"> "}
+          </text>
+          <text fg={t.textStrong} wrapMode="word">
+            {entry.text}
+          </text>
+        </box>
+      );
+  }
 });

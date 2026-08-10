@@ -15,6 +15,7 @@ type chatInputBoxProps = {
   autoApprove: boolean;
   // Keep shell access visible rather than hidden state.
   shellEnabled: boolean;
+  contextChars: number;
   skills: Skill[];
   focused: boolean;
   // false means the message was refused; the draft stays for the user to retry.
@@ -53,6 +54,18 @@ function clampTitle(title: string): string {
   return clamp(title.trim() || "New Chat", MAX_CHIP_CHARS);
 }
 
+const CHARS_PER_TOKEN = 4;
+
+const CONTEXT_BUSY_CHARS = 200_000;
+
+function formatContext(chars: number): string | null {
+  if (chars === 0) return null;
+  const tokens = Math.round(chars / CHARS_PER_TOKEN);
+  if (tokens < 1_000) return `~${tokens} tok`;
+  const thousands = tokens / 1_000;
+  return `~${thousands.toFixed(thousands < 10 ? 1 : 0)}k tok`;
+}
+
 export default function ChatInputBox({
   title,
   model,
@@ -61,10 +74,12 @@ export default function ChatInputBox({
   shellEnabled,
   skills,
   focused,
+  contextChars,
   onSubmit,
 }: chatInputBoxProps) {
   const t = useTheme();
   const chipTitle = clampTitle(title);
+  const contextLabel = formatContext(contextChars);
   const [draft, setDraft] = useState("");
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState(false);
@@ -190,6 +205,14 @@ export default function ChatInputBox({
           <text fg={t.textDim}>{clamp(model, MAX_MODEL_CHARS)}</text>
           {reasoning !== "default" && (
             <text fg={t.info}>thinking {reasoning}</text>
+          )}
+          {contextLabel && (
+            <text
+              fg={contextChars >= CONTEXT_BUSY_CHARS ? t.warning : t.textDim}
+              flexShrink={0}
+            >
+              {contextLabel}
+            </text>
           )}
         </box>
         <box flexDirection="row" gap={1} flexShrink={0}>

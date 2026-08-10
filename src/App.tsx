@@ -59,7 +59,14 @@ import {
   type McpServerConfig,
 } from "./mcp";
 import { loginMcpServer } from "./mcpOAuth";
-import type { CommandContext, Message } from "./commands/type";
+import type { ModelMessage } from "ai";
+import {
+  closeTurn,
+  historyChars,
+  toModelMessages,
+  type CommandContext,
+  type Entry,
+} from "./commands/type";
 
 // Committing per token re-parses the markdown and re-pins the sticky scroll on
 // every token, which makes long replies lag and jump. Coalesce to ~30fps.
@@ -73,11 +80,11 @@ type AppProps = {
 export default function App({ config, configWarnings = [] }: AppProps) {
   const renderer = useRenderer();
   const [sessionTitle, setSessionTitle] = useState("New Chat");
-  const [messages, setMessages] = useState<Message[]>(() =>
-    configWarnings.map((content) => ({
-      role: "system",
-      content,
-      tone: "warn",
+  const [entries, setEntries] = useState<Entry[]>(() =>
+    configWarnings.map((text) => ({
+      kind: "notice" as const,
+      text,
+      tone: "warn" as const,
     })),
   );
   const [provider, setProvider] = useState<ProviderId>(config.provider);
@@ -172,11 +179,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       setMcp(runtime);
       // Only surface warnings; successful startup should preserve the home banner.
       if (runtime.warnings.length > 0) {
-        setMessages((prev) => [
+        setEntries((prev) => [
           ...prev,
-          ...runtime.warnings.map((content) => ({
-            role: "system" as const,
-            content,
+          ...runtime.warnings.map((text) => ({
+            kind: "notice" as const,
+            text,
             tone: "warn" as const,
           })),
         ]);
@@ -195,14 +202,15 @@ export default function App({ config, configWarnings = [] }: AppProps) {
   // Survives the key-paste detour, so provider → model stays one flow.
   const openModelAfterProvider = useRef(false);
 
-  function buildSession(msgs: Message[]): Session {
+  function buildSession(log: Entry[]): Session {
     const meta = metaRef.current!;
     return {
+      version: meta.version,
       id: meta.id,
       title: sessionTitle,
       provider,
       model,
-      messages: msgs,
+      entries: log,
       cwd: meta.cwd,
       createdAt: meta.createdAt,
       updatedAt: Date.now(),
@@ -213,8 +221,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     if (isStreaming) return;
     // Command-only activity (/help, a /rename before any chat) isn't worth a
     // file, so it never touches disk.
-    if (!messages.some((m) => m.role !== "system")) return;
-    pendingSave.current = saveSession(buildSession(messages))
+    if (!entries.some((e) => e.kind !== "notice")) return;
+    pendingSave.current = saveSession(buildSession(entries))
       .then(() => {
         saveFailed.current = false;
       })
@@ -222,18 +230,18 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         if (saveFailed.current) return;
         saveFailed.current = true;
         const msg = err instanceof Error ? err.message : String(err);
-        setMessages((prev) => [
+        setEntries((prev) => [
           ...prev,
           {
-            role: "system",
-            content: `failed to save session: ${msg}`,
+            kind: "notice",
+            text: `failed to save session: ${msg}`,
             tone: "error",
           },
         ]);
       });
     // buildSession only reads state already listed here (plus stable refs).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages, sessionTitle, provider, model, isStreaming]);
+  }, [entries, sessionTitle, provider, model, isStreaming]);
 
   // Swapping the tool set mid-turn would pull tools out from under an in-flight
   // call.
@@ -309,7 +317,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
 
   const ctx: CommandContext = {
     addSystemMessage: (text, tone) =>
-      setMessages((prev) => [...prev, { role: "system", content: text, tone }]),
+      setEntries((prev) => [...prev, { kind: "notice", text, tone }]),
     newSession: () => {
       // In-flight deltas would append onto the wrong transcript.
       if (isStreaming) {
@@ -317,7 +325,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         return;
       }
       setSessionTitle("New Chat");
-      setMessages([]);
+      setEntries([]);
       metaRef.current = createSession(provider, model);
     },
     resumeSession: async (id) => {
@@ -565,11 +573,11 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       // One response can span several bubbles (text split around tool calls),
       // so collect back to the last user turn rather than taking the last one.
       const parts: string[] = [];
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
-        if (m.role === "user") break;
-        if (m.role === "assistant" && m.content.length > 0) {
-          parts.unshift(m.content);
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i];
+        if (e.kind === "user") break;
+        if (e.kind === "assistant" && e.text.length > 0) {
+          parts.unshift(e.text);
         }
       }
       const lastResponse = parts.join("\n\n");
@@ -684,8 +692,8 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     if (!approved) {
       const label = approval.request.note?.label ?? approval.request.tool;
       insertDuringStream({
-        role: "system",
-        content: `declined: ${label}`,
+        kind: "notice",
+        text: `declined: ${label}`,
         tone: "warn",
       });
     }
@@ -695,7 +703,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     setSessionTitle(session.title);
     setProvider(session.provider);
     setModel(session.model);
-    setMessages(session.messages);
+    setEntries(session.entries);
     metaRef.current = session;
   }
 
@@ -708,28 +716,24 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     const chunk = pendingDelta.current;
     if (chunk.length === 0) return;
     pendingDelta.current = "";
-    setMessages((prev) => {
+    setEntries((prev) => {
       const last = prev[prev.length - 1];
-      if (last && last.role === "assistant") {
-        return [
-          ...prev.slice(0, -1),
-          { ...last, content: last.content + chunk },
-        ];
+      if (last && last.kind === "assistant") {
+        return [...prev.slice(0, -1), { ...last, text: last.text + chunk }];
       }
-      return [...prev, { role: "assistant", content: chunk }];
+      return [...prev, { kind: "assistant", text: chunk, msgs: [] }];
     });
   }
 
-  // Flush current text before the note, then reopen a placeholder for later text.
-  function insertDuringStream(msg: Message) {
+  function insertDuringStream(entry: Entry) {
     flushDelta();
-    setMessages((prev) => {
+    setEntries((prev) => {
       const last = prev[prev.length - 1];
       const base =
-        last && last.role === "assistant" && last.content.length === 0
+        last && last.kind === "assistant" && last.text.length === 0
           ? prev.slice(0, -1)
           : prev;
-      return [...base, msg, { role: "assistant", content: "" }];
+      return [...base, entry, { kind: "assistant", text: "", msgs: [] }];
     });
   }
 
@@ -751,38 +755,28 @@ export default function App({ config, configWarnings = [] }: AppProps) {
     // Injected into the system prompt for this turn only, never sticky.
     const invokedSkills = findMentionedSkills(message, skills);
 
-    const userMsg: Message = { role: "user", content: message };
-    // Collapse consecutive assistant bubbles (one turn split around tool notes)
-    // back into one message — some providers reject same-role runs.
-    const history = [...messages, userMsg]
-      .filter((m) => m.role !== "system" && m.content.length > 0)
-      .reduce<Message[]>((acc, m) => {
-        const prev = acc[acc.length - 1];
-        if (prev && prev.role === m.role) {
-          acc[acc.length - 1] = {
-            ...prev,
-            content: `${prev.content}\n\n${m.content}`,
-          };
-          return acc;
-        }
-        acc.push(m);
-        return acc;
-      }, []);
+    const userEntry: Entry = {
+      kind: "user",
+      text: message,
+      msgs: [{ role: "user", content: message }],
+    };
+    const history = [...toModelMessages(entries), ...userEntry.msgs];
 
-    setMessages((prev) => [
+    setEntries((prev) => [
       ...prev,
-      userMsg,
-      { role: "assistant", content: "" },
+      userEntry,
+      { kind: "assistant", text: "", msgs: [] },
     ]);
 
     const controller = new AbortController();
     abortRef.current = controller;
     setIsStreaming(true);
+    let produced: ModelMessage[] = [];
     try {
-      await streamChat({
+      produced = await streamChat({
         provider,
         model,
-        messages: history.map(({ role, content }) => ({ role, content })),
+        messages: history,
         mcpTools: mcp.tools,
         mcpGated: mcp.gated,
         shellEnabled,
@@ -798,12 +792,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           }
         },
         onToolEvent: (evt) => {
-          const note = describeToolEvent(evt);
-          insertDuringStream({
-            role: "system",
-            content: note.label,
-            toolNote: note,
-          });
+          insertDuringStream({ kind: "tool", note: describeToolEvent(evt) });
         },
         onApprovalRequest: (request) =>
           // Never auto-approve runCommand: shell execution has no path containment.
@@ -831,14 +820,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       // Flush before settling so no buffered output is lost.
       flushDelta();
       setIsStreaming(false);
-      // A turn ending on a tool call re-opened an empty placeholder, which
-      // would render as a bare "syd" header.
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        return last && last.role === "assistant" && last.content.length === 0
-          ? prev.slice(0, -1)
-          : prev;
-      });
+      setEntries((prev) => closeTurn(prev, produced, cancelled));
       // So a cancelled turn reads as deliberate, not as output that stopped.
       if (cancelled) {
         ctx.addSystemMessage("response cancelled", "warn");
@@ -960,7 +942,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
         height="100%"
         backgroundColor={theme.tokens.appBg}
       >
-        <ChatMain messages={messages} streaming={isStreaming} model={model} />
+        <ChatMain entries={entries} streaming={isStreaming} model={model} />
         <ChatInputBox
           title={sessionTitle}
           model={model}
@@ -969,6 +951,7 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           shellEnabled={shellEnabled}
           skills={skills}
           focused={!overlayOpen}
+          contextChars={historyChars(entries)}
           onSubmit={handleSubmit}
         />
         {pickerSessions && (

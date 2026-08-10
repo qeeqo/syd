@@ -112,11 +112,12 @@ export async function streamChat({
   skillActions,
   reasoning = DEFAULT_REASONING_LEVEL,
   abortSignal,
-}: StreamChatArgs) {
+}: StreamChatArgs): Promise<ModelMessage[]> {
   // Refresh OAuth before resolve() reads the token; key providers are a no-op.
   await ensureProviderReady(provider);
 
   const convo: ModelMessage[] = [...messages];
+  const produced = () => convo.slice(messages.length);
 
   // ChatGPT requires store:false; merge one level deep so reasoning options
   // cannot overwrite it in the shared openai namespace.
@@ -157,7 +158,7 @@ export async function streamChat({
 
   for (let round = 0; round < MAX_APPROVAL_ROUNDS; round++) {
     // A cancel landing between rounds must not start another request.
-    if (abortSignal?.aborted) return;
+    if (abortSignal?.aborted) return produced();
 
     const result = streamText({
       model: providers[provider].resolve(model),
@@ -207,24 +208,22 @@ export async function streamChat({
           break;
         case "abort":
           // Clean return, not an error — callers keep the partial output.
-          return;
+          return produced();
         case "error":
           // A cancel can surface here as a thrown AbortError instead of an
           // abort part.
-          if (abortSignal?.aborted) return;
+          if (abortSignal?.aborted) return produced();
           throw part.error instanceof Error
             ? part.error
             : new Error(String(part.error));
       }
     }
 
-    if (abortSignal?.aborted) return;
+    if (abortSignal?.aborted) return produced();
 
-    if (pending.length === 0) return;
-
-    // Resume protocol: append this round's output, answer each request, and
-    // call again — approved tools execute on the next round.
     convo.push(...(await result.responseMessages));
+
+    if (pending.length === 0) return produced();
 
     const responses: ToolApprovalResponse[] = [];
     for (const req of pending) {
@@ -244,4 +243,6 @@ export async function streamChat({
     }
     convo.push({ role: "tool", content: responses });
   }
+
+  return produced();
 }

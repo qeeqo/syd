@@ -1,15 +1,24 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readdir, rename, unlink } from "node:fs/promises";
-import { isSystemTone, type Message } from "./commands/type.ts";
+import type { ModelMessage } from "ai";
+import {
+  carriesHistory,
+  isSystemTone,
+  type Entry,
+  type ToolNote,
+} from "./commands/type.ts";
 import { isProviderId, type ProviderId } from "./providers.ts";
 
+export const SESSION_FORMAT = 2;
+
 export type Session = {
+  version: number;
   id: string;
   title: string;
   provider: ProviderId;
   model: string;
-  messages: Message[];
+  entries: Entry[];
   cwd: string;
   createdAt: number;
   updatedAt: number;
@@ -29,19 +38,121 @@ function filePath(id: string) {
   return join(SESSIONS_DIR, `${id}.json`);
 }
 
-function isMessage(value: unknown): value is Message {
-  if (typeof value !== "object" || value === null) return false;
-  const m = value as Record<string, unknown>;
-  return (
-    (m.role === "user" || m.role === "assistant" || m.role === "system") &&
-    typeof m.content === "string"
-  );
+function parseToolNote(value: unknown): ToolNote | null {
+  if (typeof value !== "object" || value === null) return null;
+  const n = value as Record<string, unknown>;
+  if (typeof n.label !== "string") return null;
+  return typeof n.diffText === "string"
+    ? { label: n.label, diffText: n.diffText }
+    : { label: n.label };
 }
 
-function sanitizeMessage(m: Message): Message {
-  if (m.tone === undefined || isSystemTone(m.tone)) return m;
-  // Preserve the session while dropping an unrecognized tone.
-  return { ...m, tone: undefined };
+function parseMsgs(value: unknown): ModelMessage[] {
+  if (!Array.isArray(value)) return [];
+  const usable = value.every(
+    (m) =>
+      typeof m === "object" &&
+      m !== null &&
+      typeof (m as { role?: unknown }).role === "string" &&
+      "content" in (m as object),
+  );
+  return usable ? (value as ModelMessage[]) : [];
+}
+
+function parseEntry(value: unknown): Entry | null {
+  if (typeof value !== "object" || value === null) return null;
+  const e = value as Record<string, unknown>;
+  switch (e.kind) {
+    case "user":
+    case "assistant": {
+      if (typeof e.text !== "string") return null;
+      return { kind: e.kind, text: e.text, msgs: parseMsgs(e.msgs) };
+    }
+    case "tool": {
+      const note = parseToolNote(e.note);
+      return note ? { kind: "tool", note } : null;
+    }
+    case "notice": {
+      if (typeof e.text !== "string") return null;
+      return isSystemTone(e.tone)
+        ? { kind: "notice", text: e.text, tone: e.tone }
+        : { kind: "notice", text: e.text };
+    }
+    default:
+      return null;
+  }
+}
+
+function assignLiftedMsgs(entries: Entry[]): Entry[] {
+  const out = [...entries];
+  const indices = out
+    .map((e, i) => (carriesHistory(e) ? i : -1))
+    .filter((i) => i !== -1);
+
+  let start = 0;
+  while (start < indices.length) {
+    const kind = (out[indices[start]] as { kind: "user" | "assistant" }).kind;
+    let end = start;
+    while (
+      end + 1 < indices.length &&
+      (out[indices[end + 1]] as { kind: string }).kind === kind
+    ) {
+      end++;
+    }
+
+    const run = indices.slice(start, end + 1);
+    const text = run
+      .map((i) => (out[i] as { text: string }).text)
+      .filter((t) => t.length > 0)
+      .join("\n\n");
+
+    for (const i of run) {
+      const entry = out[i] as Extract<Entry, { msgs: ModelMessage[] }>;
+      out[i] = { ...entry, msgs: [] };
+    }
+    if (text.length > 0) {
+      const last = out[run[run.length - 1]] as Extract<
+        Entry,
+        { msgs: ModelMessage[] }
+      >;
+      out[run[run.length - 1]] = {
+        ...last,
+        msgs: [{ role: kind, content: text }],
+      };
+    }
+
+    start = end + 1;
+  }
+
+  return out;
+}
+
+function liftV1(value: unknown): Entry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: Entry[] = [];
+
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const m = raw as Record<string, unknown>;
+    if (typeof m.content !== "string") continue;
+
+    if (m.role === "user" || m.role === "assistant") {
+      entries.push({ kind: m.role, text: m.content, msgs: [] });
+      continue;
+    }
+    if (m.role !== "system") continue;
+
+    const note = parseToolNote(m.toolNote);
+    if (note) {
+      entries.push({ kind: "tool", note });
+    } else if (isSystemTone(m.tone)) {
+      entries.push({ kind: "notice", text: m.content, tone: m.tone });
+    } else {
+      entries.push({ kind: "notice", text: m.content });
+    }
+  }
+
+  return assignLiftedMsgs(entries);
 }
 
 function parseSession(value: unknown): Session | null {
@@ -55,19 +166,30 @@ function parseSession(value: unknown): Session | null {
     (s.provider === undefined ||
       (typeof s.provider === "string" && isProviderId(s.provider))) &&
     typeof s.model === "string" &&
-    Array.isArray(s.messages) &&
-    s.messages.every(isMessage) &&
     typeof s.cwd === "string" &&
     typeof s.createdAt === "number" &&
     typeof s.updatedAt === "number";
   if (!valid) return null;
 
+  const version = typeof s.version === "number" ? s.version : 1;
+  if (version > SESSION_FORMAT) return null;
+
+  let entries: Entry[];
+  if (version < SESSION_FORMAT) {
+    entries = liftV1(s.messages);
+  } else {
+    if (!Array.isArray(s.entries)) return null;
+    const parsed = s.entries.map(parseEntry);
+    entries = parsed.filter((e): e is Entry => e !== null);
+  }
+
   return {
+    version: SESSION_FORMAT,
     id: s.id as string,
     title: s.title as string,
     provider: (s.provider as ProviderId | undefined) ?? "google",
     model: s.model as string,
-    messages: (s.messages as Message[]).map(sanitizeMessage),
+    entries,
     cwd: s.cwd as string,
     createdAt: s.createdAt as number,
     updatedAt: s.updatedAt as number,
@@ -81,11 +203,12 @@ async function ensureDir() {
 export function createSession(provider: ProviderId, model: string): Session {
   const now = Date.now();
   return {
+    version: SESSION_FORMAT,
     id: crypto.randomUUID(),
     title: "New Chat",
     provider,
     model,
-    messages: [],
+    entries: [],
     cwd: process.cwd(),
     createdAt: now,
     updatedAt: now,
@@ -94,7 +217,11 @@ export function createSession(provider: ProviderId, model: string): Session {
 
 export async function saveSession(session: Session): Promise<void> {
   await ensureDir();
-  const toWrite: Session = { ...session, updatedAt: Date.now() };
+  const toWrite: Session = {
+    ...session,
+    version: SESSION_FORMAT,
+    updatedAt: Date.now(),
+  };
   const target = filePath(session.id);
   const tmp = `${target}.tmp`;
   await Bun.write(tmp, JSON.stringify(toWrite, null, 2));

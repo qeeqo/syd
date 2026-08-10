@@ -45,6 +45,81 @@ const CONNECT_TIMEOUT_MS = 20_000;
 // So one server that won't close cleanly can't stall exit or a /mcp reload.
 const CLOSE_TIMEOUT_MS = 2_000;
 
+const MAX_MCP_RESULT_CHARS = 100_000;
+
+const MIN_USEFUL_CLAMP = 200;
+
+function headClamp(text: string, max: number): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n…[${text.length - max} more characters truncated]`;
+}
+
+function jsonSize(value: unknown): number {
+  try {
+    return JSON.stringify(value)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function isTextPart(part: unknown): part is { type: "text"; text: string } {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    (part as { type?: unknown }).type === "text" &&
+    typeof (part as { text?: unknown }).text === "string"
+  );
+}
+
+function partLabel(part: unknown): string {
+  const type = (part as { type?: unknown } | null)?.type;
+  return typeof type === "string" ? `${type} content` : "content";
+}
+
+export function clampMcpResult(result: unknown, max: number): unknown {
+  if (typeof result === "string") return headClamp(result, max);
+  if (typeof result !== "object" || result === null) return result;
+
+  const total = jsonSize(result);
+  if (total === 0 || total <= max) return result;
+
+  const content = (result as { content?: unknown }).content;
+  if (!Array.isArray(content)) return headClamp(JSON.stringify(result), max);
+
+  let budget = max;
+  const clamped = content.map((part) => {
+    const size = jsonSize(part);
+    if (size !== 0 && size <= budget) {
+      budget -= size;
+      return part;
+    }
+    const remaining = budget;
+    budget = 0;
+    if (remaining >= MIN_USEFUL_CLAMP && isTextPart(part)) {
+      return { ...part, text: headClamp(part.text, remaining) };
+    }
+    return {
+      type: "text",
+      text: `[${partLabel(part)} omitted — ${size} characters exceeded the result budget]`,
+    };
+  });
+  return { ...result, content: clamped };
+}
+
+type ExecutableTool = { execute?: (...args: unknown[]) => unknown };
+
+export function capToolResult(toolDef: unknown): unknown {
+  if (typeof toolDef !== "object" || toolDef === null) return toolDef;
+  const def = toolDef as ExecutableTool;
+  const original = def.execute;
+  if (typeof original !== "function") return toolDef;
+  return {
+    ...def,
+    execute: async (...args: unknown[]) =>
+      clampMcpResult(await original.apply(def, args), MAX_MCP_RESULT_CHARS),
+  };
+}
+
 export function emptyMcpRuntime(): McpRuntime {
   return { tools: {} as ToolSet, gated: [], clients: [], warnings: [] };
 }
@@ -171,7 +246,7 @@ async function connectServer(
     const serverTools = await client.tools();
 
     for (const [toolName, toolDef] of Object.entries(serverTools)) {
-      entries.push([`${name}__${toolName}`, toolDef]);
+      entries.push([`${name}__${toolName}`, capToolResult(toolDef)]);
     }
     return { entries, client, warnings };
   } catch (err) {
