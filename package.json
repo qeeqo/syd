@@ -11,14 +11,23 @@
   },
   "homepage": "https://github.com/qeeqo/syd#readme",
   "bugs": "https://github.com/qeeqo/syd/issues",
-  "keywords": ["ai", "cli", "tui", "agent", "mcp", "bun", "opentui"],
+  "keywords": [
+    "ai",
+    "cli",
+    "tui",
+    "agent",
+    "mcp",
+    "bun",
+    "opentui"
+  ],
   "type": "module",
   "scripts": {
     "dev": "bun --watch src/main.tsx",
     "start": "bun src/main.tsx",
     "build": "tsc -b",
     "lint": "eslint .",
-    "licenses": "bun run scripts/generate-licenses.ts"
+    "licenses": "bun run scripts/generate-licenses.ts",
+    "test": "bun test"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.19",

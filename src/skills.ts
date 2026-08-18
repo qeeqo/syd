@@ -10,10 +10,10 @@ export const MAX_SKILL_INSTRUCTIONS = 4000;
 // Normalize every input path here so UI, tools, and config accept the same handles.
 export function normalizeSkillName(raw: string): string | null {
   const slug = raw
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
+    .trim() // removes outer whitespace
+    .toLowerCase() // transforms to lowercase
+    .replace(/\s+/g, "-") // replace spaces to dash
+    .replace(/[^a-z0-9-]/g, "") // removes invalid chars
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   if (slug.length === 0 || slug.length > MAX_SKILL_NAME) return null;
