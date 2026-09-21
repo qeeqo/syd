@@ -25,8 +25,7 @@ import {
   type ReasoningLevel,
 } from "./reasoning";
 import { dispatch } from "./commands/registry";
-import { streamChat, type ApprovalRequest } from "./chat";
-import { describeToolEvent } from "./tools";
+import type { ApprovalRequest } from "./chat";
 import {
   createSession,
   findSessionsByIdPrefix,
@@ -49,7 +48,8 @@ import { resolveTheme } from "./theme";
 import { ThemeProvider } from "./components/themeContext";
 import ThemePicker from "./components/themePicker";
 import ReasoningPicker from "./components/reasoningPicker";
-import { findMentionedSkills, type Skill } from "./skills";
+import type { Skill } from "./skills";
+import { runTurn } from "./runTurn";
 import type { AskUserRequest } from "./tools";
 import {
   connectMcpServers,
@@ -59,11 +59,8 @@ import {
   type McpServerConfig,
 } from "./mcp";
 import { loginMcpServer } from "./mcpOAuth";
-import type { ModelMessage } from "ai";
 import {
-  closeTurn,
   historyChars,
-  toModelMessages,
   type CommandContext,
   type Entry,
 } from "./commands/type";
@@ -747,85 +744,33 @@ export default function App({ config, configWarnings = [] }: AppProps) {
       ctx.addSystemMessage("wait for the current response to finish", "warn");
       return false;
     }
-    void runTurn(message);
-    return true;
-  }
-
-  async function runTurn(message: string) {
-    // Injected into the system prompt for this turn only, never sticky.
-    const invokedSkills = findMentionedSkills(message, skills);
-
-    const userEntry: Entry = {
-      kind: "user",
-      text: message,
-      msgs: [{ role: "user", content: message }],
+    const dependencies = {
+      entries,
+      setEntries,
+      abortRef,
+      skills,
+      provider,
+      model,
+      shellEnabled,
+      mcpTools: mcp.tools,
+      mcpGated: mcp.gated,
+      reasoning,
+      setIsStreaming,
+      setApproval,
+      pendingDelta,
+      flushHandle,
+      autoApproveRef,
+      askUserResolve,
+      onAskUser: requestUserAnswer,
+      skillActions,
+      flushDelta,
+      DELTA_FLUSH_MS,
+      insertDuringStream,
+      settleUserAnswer,
+      addSystemMessage: ctx.addSystemMessage,
     };
-    const history = [...toModelMessages(entries), ...userEntry.msgs];
-
-    setEntries((prev) => [
-      ...prev,
-      userEntry,
-      { kind: "assistant", text: "", msgs: [] },
-    ]);
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setIsStreaming(true);
-    let produced: ModelMessage[] = [];
-    try {
-      produced = await streamChat({
-        provider,
-        model,
-        messages: history,
-        mcpTools: mcp.tools,
-        mcpGated: mcp.gated,
-        shellEnabled,
-        reasoning,
-        skills: invokedSkills,
-        onAskUser: requestUserAnswer,
-        skillActions,
-        abortSignal: controller.signal,
-        onDelta: (delta) => {
-          pendingDelta.current += delta;
-          if (flushHandle.current === null) {
-            flushHandle.current = setTimeout(flushDelta, DELTA_FLUSH_MS);
-          }
-        },
-        onToolEvent: (evt) => {
-          insertDuringStream({ kind: "tool", note: describeToolEvent(evt) });
-        },
-        onApprovalRequest: (request) =>
-          // Never auto-approve runCommand: shell execution has no path containment.
-          autoApproveRef.current && request.tool !== "runCommand"
-            ? Promise.resolve(true)
-            : new Promise<boolean>((resolve) => {
-                setApproval({ request, resolve });
-              }),
-      });
-    } catch (err) {
-      // A cancel can throw AbortError instead of ending cleanly — not a failure
-      // to report; the finally block leaves the "cancelled" note.
-      if (!controller.signal.aborted) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.addSystemMessage(`error: ${msg}`, "error");
-      }
-    } finally {
-      const cancelled = controller.signal.aborted;
-      abortRef.current = null;
-      // Settle a question left parked by an errored turn, so its tool promise
-      // never dangles and no ghost popup lingers.
-      if (askUserResolve.current) {
-        settleUserAnswer("(the question was cancelled)");
-      }
-      // Flush before settling so no buffered output is lost.
-      flushDelta();
-      setIsStreaming(false);
-      setEntries((prev) => closeTurn(prev, produced, cancelled));
-      // So a cancelled turn reads as deliberate, not as output that stopped.
-      if (cancelled) {
-        ctx.addSystemMessage("response cancelled", "warn");
-      }
-    }
+    void runTurn(message, dependencies);
+    return true;
   }
 
   // Clears the flag either way, so the next open can't inherit a stale handoff.
