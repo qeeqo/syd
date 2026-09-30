@@ -1,11 +1,19 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { commandList } from "../commands/registry";
 import CommandSuggestions from "./commandSuggestions";
 import MentionSuggestions from "./mentionSuggestions";
+import ApprovalPrompt, { approvalTitle } from "./approvalPrompt";
 import { useTheme } from "./themeContext";
+import type { ApprovalRequest } from "../chat";
 import type { Skill } from "../skills";
 import type { ReasoningLevel } from "../reasoning";
+
+export type PendingApproval = {
+  request: ApprovalRequest;
+  onDecide: (approved: boolean) => void;
+  onApproveAll: () => void;
+};
 
 type chatInputBoxProps = {
   title: string;
@@ -20,6 +28,8 @@ type chatInputBoxProps = {
   focused: boolean;
   // false means the message was refused; the draft stays for the user to retry.
   onSubmit: (message: string) => boolean;
+  // Takes over the input box until decided; the draft survives underneath.
+  approval: PendingApproval | null;
 };
 
 function commandQuery(draft: string): string | null {
@@ -54,6 +64,20 @@ function clampTitle(title: string): string {
   return clamp(title.trim() || "New Chat", MAX_CHIP_CHARS);
 }
 
+// Consecutive approvals can land in one render; keying by request remounts the
+// panel so arming, scroll position, and fullscreen never carry over.
+const requestIds = new WeakMap<ApprovalRequest, number>();
+let nextRequestId = 0;
+
+function requestKey(request: ApprovalRequest): number {
+  let id = requestIds.get(request);
+  if (id === undefined) {
+    id = ++nextRequestId;
+    requestIds.set(request, id);
+  }
+  return id;
+}
+
 const CHARS_PER_TOKEN = 4;
 
 const CONTEXT_BUSY_CHARS = 200_000;
@@ -76,6 +100,7 @@ export default function ChatInputBox({
   focused,
   contextChars,
   onSubmit,
+  approval,
 }: chatInputBoxProps) {
   const t = useTheme();
   const chipTitle = clampTitle(title);
@@ -83,22 +108,28 @@ export default function ChatInputBox({
   const [draft, setDraft] = useState("");
   const [selected, setSelected] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const lastKeyAt = useRef(0);
 
+  // The palette key handler is global, so a leftover "/" draft would steal
+  // ↑↓ from the approval's scrolling unless the palettes close first.
   const query = commandQuery(draft);
   const matches =
     query === null
       ? []
       : commandList.filter((c) => c.name.startsWith(query.toLowerCase()));
-  const commandPaletteOpen = !dismissed && matches.length > 0;
+  const commandPaletteOpen =
+    approval === null && !dismissed && matches.length > 0;
 
   const mention = commandPaletteOpen ? null : mentionQuery(draft);
   const mentionMatches =
     mention === null
       ? []
       : skills.filter((s) => s.name.startsWith(mention.query.toLowerCase()));
-  const mentionPaletteOpen = !dismissed && mentionMatches.length > 0;
+  const mentionPaletteOpen =
+    approval === null && !dismissed && mentionMatches.length > 0;
 
   function handleInput(value: string) {
+    lastKeyAt.current = Date.now();
     setDraft(value);
     setSelected(0);
     setDismissed(false);
@@ -180,24 +211,36 @@ export default function ChatInputBox({
       )}
       <box
         border
-        borderColor={t.inputBorder}
+        borderColor={approval ? t.warnBorder : t.inputBorder}
+        title={approval ? approvalTitle(approval.request) : undefined}
+        titleColor={t.warningBright}
         flexDirection="column"
       >
-        <box flexDirection="row">
-          <input
-            value={draft}
-            focused={focused}
-            paddingLeft={1}
-            flexGrow={1}
-            textColor={t.textStrong}
-            focusedTextColor={t.textStrong}
-            cursorColor={t.accent}
-            selectionBg={t.selectionBg}
-            selectionFg={t.textSelected}
-            onInput={handleInput}
-            onSubmit={handleSubmit}
+        {approval ? (
+          <ApprovalPrompt
+            key={requestKey(approval.request)}
+            request={approval.request}
+            onDecide={approval.onDecide}
+            onApproveAll={approval.onApproveAll}
+            lastKeyAt={lastKeyAt}
           />
-        </box>
+        ) : (
+          <box flexDirection="row">
+            <input
+              value={draft}
+              focused={focused}
+              paddingLeft={1}
+              flexGrow={1}
+              textColor={t.textStrong}
+              focusedTextColor={t.textStrong}
+              cursorColor={t.accent}
+              selectionBg={t.selectionBg}
+              selectionFg={t.textSelected}
+              onInput={handleInput}
+              onSubmit={handleSubmit}
+            />
+          </box>
+        )}
       </box>
       {/* Let the model group shrink before the session and safety indicators. */}
       <box flexDirection="row" justifyContent="space-between" gap={1}>

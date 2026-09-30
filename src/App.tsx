@@ -7,7 +7,6 @@ import HelpPopup from "./components/helpPopup";
 import ProviderPicker from "./components/providerPicker";
 import ApiKeyPrompt from "./components/apiKeyPrompt";
 import ChatGPTLoginPrompt from "./components/chatGPTLoginPrompt";
-import ApprovalPrompt from "./components/approvalPrompt";
 import ModelPicker from "./components/modelPicker";
 import McpToolsPopup, { type McpServerView } from "./components/mcpToolsPopup";
 import SettingsPopup, { type SettingItem } from "./components/settingsPopup";
@@ -59,11 +58,7 @@ import {
   type McpServerConfig,
 } from "./mcp";
 import { loginMcpServer } from "./mcpOAuth";
-import {
-  historyChars,
-  type CommandContext,
-  type Entry,
-} from "./commands/type";
+import { historyChars, type CommandContext, type Entry } from "./commands/type";
 
 // Committing per token re-parses the markdown and re-pins the sticky scroll on
 // every token, which makes long replies lag and jump. Coalesce to ~30fps.
@@ -898,6 +893,16 @@ export default function App({ config, configWarnings = [] }: AppProps) {
           focused={!overlayOpen}
           contextChars={historyChars(entries)}
           onSubmit={handleSubmit}
+          approval={
+            approval && {
+              request: approval.request,
+              onDecide: handleApprovalDecision,
+              onApproveAll: () => {
+                ctx.setAutoApprove(true);
+                handleApprovalDecision(true);
+              },
+            }
+          }
         />
         {pickerSessions && (
           <box
@@ -1150,26 +1155,6 @@ export default function App({ config, configWarnings = [] }: AppProps) {
               onDismiss={() => {
                 setThemeName(themeBeforePreview.current);
                 setThemePickerOpen(false);
-              }}
-            />
-          </box>
-        )}
-        {approval && (
-          <box
-            position="absolute"
-            left={0}
-            top={0}
-            width="100%"
-            height="100%"
-            justifyContent="center"
-            alignItems="center"
-          >
-            <ApprovalPrompt
-              request={approval.request}
-              onDecide={handleApprovalDecision}
-              onApproveAll={() => {
-                ctx.setAutoApprove(true);
-                handleApprovalDecision(true);
               }}
             />
           </box>
