@@ -95,10 +95,6 @@ export default function SessionPicker({
             flexDirection="row"
             backgroundColor={isSelected ? t.selectionBg : undefined}
           >
-            {/* <text fg={isSelected ? t.textSecondary : t.textFaint}> */}
-            {/*   {session.id.slice(0, 8)} */}
-            {/*   {"  "} */}
-            {/* </text> */}
             <text fg={isSelected ? t.textSelected : t.accent}>{title}</text>
             <text fg={isSelected ? t.textSecondary : t.textMuted}>
               {"  "}
