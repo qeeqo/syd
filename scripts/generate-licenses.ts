@@ -30,6 +30,7 @@ type PkgJson = {
   license?: string | { type?: string };
   licenses?: Array<{ type?: string }>;
   dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
 };
 
 type Entry = {
@@ -37,6 +38,7 @@ type Entry = {
   version: string;
   license: string;
   text: string | null; // verbatim LICENSE/COPYING/NOTICE text, if the package ships one
+  inferredFrom?: string; // set when the package isn't installed here and its notice is borrowed from a sibling
 };
 
 const warnings: string[] = [];
@@ -97,21 +99,28 @@ function readLicenseText(dir: string): string | null {
 }
 
 // Breadth-first walk of the PRODUCTION dependency closure: start at the root
-// package's `dependencies` and follow each package's own `dependencies`. This
-// deliberately excludes devDependencies — build/lint tooling isn't shipped in a
-// bundled artifact, so it doesn't need attribution.
+// package's `dependencies` and follow each package's own `dependencies` and
+// `optionalDependencies`. This deliberately excludes devDependencies — build/lint
+// tooling isn't shipped in a bundled artifact, so it doesn't need attribution.
+//
+// Optional deps matter because @opentui/core ships its native library as
+// per-platform optional packages; a compiled binary embeds one, and a
+// cross-platform release embeds all of them.
 function collectProdDeps(): Entry[] {
   const root: PkgJson = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
   const seen = new Map<string, Entry>(); // key: name@version
-  const queue: Array<{ name: string; from: string }> = Object.keys(
+  const queue: Array<{ name: string; from: string; group?: string }> = Object.keys(
     root.dependencies ?? {},
   ).map((name) => ({ name, from: ROOT }));
+  // Optional deps are only installed for the host platform, so most are absent
+  // from node_modules. Collected per parent so they can borrow a sibling's notice.
+  const missingOptional: Array<{ name: string; spec: string; group: string }> = [];
 
   while (queue.length > 0) {
-    const { name, from } = queue.shift()!;
+    const { name, from, group } = queue.shift()!;
     const dir = resolvePkgDir(name, from);
     if (!dir) {
-      warnings.push(`could not resolve "${name}" (referenced from ${from})`);
+      if (!group) warnings.push(`could not resolve "${name}" (referenced from ${from})`);
       continue;
     }
     let pkg: PkgJson;
@@ -133,6 +142,33 @@ function collectProdDeps(): Entry[] {
     for (const dep of Object.keys(pkg.dependencies ?? {})) {
       queue.push({ name: dep, from: dir });
     }
+    const optionals = Object.entries(pkg.optionalDependencies ?? {});
+    for (const [dep, spec] of optionals) {
+      queue.push({ name: dep, from: dir, group: pkg.name ?? name });
+      if (!resolvePkgDir(dep, dir)) missingOptional.push({ name: dep, spec, group: pkg.name ?? name });
+    }
+  }
+
+  for (const m of missingOptional) {
+    // Same-parent siblings are built from one repo and share a license, so a
+    // resolved one is a sound stand-in; no sibling means we can't vouch for it.
+    const sibling = [...seen.values()].find(
+      (e) => e.name.startsWith(`${m.group}-`) && e.name !== m.name,
+    );
+    if (!sibling) {
+      warnings.push(`optional "${m.name}" is not installed and has no installed sibling to infer from`);
+      continue;
+    }
+    seen.set(`${m.name}@${m.spec}`, {
+      name: m.name,
+      version: m.spec,
+      license: sibling.license,
+      text: sibling.text,
+      inferredFrom: sibling.name,
+    });
+    warnings.push(
+      `optional "${m.name}" is not installed here — notice inferred from ${sibling.name}; verify before shipping a cross-platform build`,
+    );
   }
 
   return [...seen.values()].sort(
@@ -169,6 +205,12 @@ function render(entries: Entry[]): string {
 
   for (const e of entries) {
     lines.push(`## ${e.name}@${e.version}`, "", `License: ${e.license}`, "");
+    if (e.inferredFrom) {
+      lines.push(
+        `_Not installed when this file was generated (platform-specific package); license and notice are taken from its sibling \`${e.inferredFrom}\`._`,
+        "",
+      );
+    }
     if (e.text) {
       lines.push("```", e.text, "```", "");
     } else {
