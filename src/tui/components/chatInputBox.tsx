@@ -1,13 +1,13 @@
 import { useRef, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { commandList } from "../commands/registry";
+import { commandList } from "../../core/commands/registry";
 import CommandSuggestions from "./commandSuggestions";
 import MentionSuggestions from "./mentionSuggestions";
 import ApprovalPrompt, { approvalTitle } from "./approvalPrompt";
 import { useTheme } from "./themeContext";
-import type { ApprovalRequest } from "../chat";
-import type { Skill } from "../skills";
-import type { ReasoningLevel } from "../reasoning";
+import type { ApprovalRequest } from "../../core/chat";
+import type { Skill } from "../../core/skills";
+import type { ReasoningLevel } from "../../core/reasoning";
 
 export type PendingApproval = {
   request: ApprovalRequest;

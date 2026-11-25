@@ -1,8 +1,8 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import App from "./App.tsx";
-import { applyStoredKeys } from "./auth.ts";
-import { loadConfig } from "./config.ts";
+import App from "./tui/App.tsx";
+import { applyStoredKeys } from "./core/auth.ts";
+import { loadConfig } from "./core/config.ts";
 
 await applyStoredKeys();
 

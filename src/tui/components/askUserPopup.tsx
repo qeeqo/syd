@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { AskUserRequest } from "../tools";
+import type { AskUserRequest } from "../../core/tools";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 

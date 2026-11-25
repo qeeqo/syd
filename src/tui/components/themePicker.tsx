@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { themeList } from "../theme.ts";
+import { themeList } from "../../core/theme.ts";
 import { useTheme } from "./themeContext.tsx";
 import "./overlayBox";
 

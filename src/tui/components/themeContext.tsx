@@ -3,7 +3,7 @@ import {
   resolveTheme,
   DEFAULT_THEME_NAME,
   type ThemeTokens,
-} from "../theme.ts";
+} from "../../core/theme.ts";
 
 // Kept out of theme.ts so that module stays React-free for a headless core.
 

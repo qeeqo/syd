@@ -5,7 +5,7 @@ import {
   hasApiKey,
   type Provider,
   type ProviderId,
-} from "../providers";
+} from "../../core/providers";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 

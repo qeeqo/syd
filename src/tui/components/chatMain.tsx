@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { SyntaxStyle, TextAttributes, type BorderCharacters } from "@opentui/core";
-import type { Entry, SystemTone } from "../commands/type";
-import type { ThemeTokens } from "../theme.ts";
+import type { Entry, SystemTone } from "../../core/commands/type";
+import type { ThemeTokens } from "../../core/theme.ts";
 import { useTheme } from "./themeContext.tsx";
 
 // Synthesize intermediate loader colours and fail soft because this runs every frame.

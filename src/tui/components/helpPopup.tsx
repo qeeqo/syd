@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/react";
-import { commandList } from "../commands/registry";
+import { commandList } from "../../core/commands/registry";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 

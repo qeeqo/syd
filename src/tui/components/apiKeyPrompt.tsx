@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { validateApiKey } from "../auth";
+import { validateApiKey } from "../../core/auth";
 import { useTheme } from "./themeContext";
-import type { Provider } from "../providers";
+import type { Provider } from "../../core/providers";
 import "./overlayBox";
 
 type ApiKeyPromptProps = {

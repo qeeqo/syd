@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { fetchModels, type FetchModelsResult } from "../models";
+import { fetchModels, type FetchModelsResult } from "../../core/models";
 import { useTheme } from "./themeContext";
-import type { Provider } from "../providers";
-import type { ReasoningLevel } from "../reasoning";
+import type { Provider } from "../../core/providers";
+import type { ReasoningLevel } from "../../core/reasoning";
 import "./overlayBox";
 
 type ModelPickerProps = {

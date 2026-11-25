@@ -6,7 +6,7 @@ import {
   normalizeSkillName,
   MAX_SKILL_INSTRUCTIONS,
   type Skill,
-} from "../skills";
+} from "../../core/skills";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 

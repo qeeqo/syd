@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import { REASONING_LEVELS, type ReasoningLevel } from "../reasoning.ts";
+import { REASONING_LEVELS, type ReasoningLevel } from "../../core/reasoning.ts";
 import { useTheme } from "./themeContext.tsx";
 import "./overlayBox";
 

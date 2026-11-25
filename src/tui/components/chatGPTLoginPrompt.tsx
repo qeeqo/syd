@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
 import { useTheme } from "./themeContext";
-import type { Provider } from "../providers";
+import type { Provider } from "../../core/providers";
 import "./overlayBox";
 
 type ChatGPTLoginPromptProps = {

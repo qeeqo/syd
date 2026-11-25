@@ -17,7 +17,7 @@ section is generated — run `bun run licenses` to refresh it.
 
 # Color themes
 
-syd bundles a handful of color themes (`src/theme.ts`) derived from well-known
+syd bundles a handful of color themes (`src/core/theme.ts`) derived from well-known
 open-source palettes. Each is distributed under the MIT License, reproduced
 below with its original copyright and permission notice as MIT requires.
 

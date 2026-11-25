@@ -4,18 +4,18 @@ import {
   toModelMessages,
   type Entry,
   type SystemTone,
-} from "./commands/type";
-import { findMentionedSkills, type Skill } from "./skills";
-import type { ProviderId } from "./providers";
+} from "../core/commands/type";
+import { findMentionedSkills, type Skill } from "../core/skills";
+import type { ProviderId } from "../core/providers";
 import type { ToolSet } from "ai";
-import type { ReasoningLevel } from "./reasoning";
-import { streamChat, type ApprovalRequest } from "./chat";
+import type { ReasoningLevel } from "../core/reasoning";
+import { streamChat, type ApprovalRequest } from "../core/chat";
 import type { ModelMessage } from "ai";
 import {
   describeToolEvent,
   type AskUserRequest,
   type SkillActions,
-} from "./tools";
+} from "../core/tools";
 
 export async function runTurn(
   message: string,

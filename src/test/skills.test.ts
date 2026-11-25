@@ -1,5 +1,5 @@
 import { test, describe, expect } from "bun:test";
-import { normalizeSkillName, MAX_SKILL_NAME } from "../skills";
+import { normalizeSkillName, MAX_SKILL_NAME } from "../core/skills";
 
 describe("normalizeSkillName", () => {
   test("is idempotent for normalized skill names", () => {

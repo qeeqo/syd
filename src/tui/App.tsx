@@ -12,26 +12,26 @@ import McpToolsPopup, { type McpServerView } from "./components/mcpToolsPopup";
 import SettingsPopup, { type SettingItem } from "./components/settingsPopup";
 import SkillsPopup from "./components/skillsPopup";
 import AskUserPopup from "./components/askUserPopup";
-import { saveApiKey, verifyApiKey, saveChatGPTTokens } from "./auth";
-import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "./oauth";
+import { saveApiKey, verifyApiKey, saveChatGPTTokens } from "../core/auth";
+import { startChatGPTLogin, openUrl, verifyChatGPTAccess } from "../core/oauth";
 import { copyToClipboard } from "./clipboard";
-import { providers, providerList, isProviderId, hasApiKey } from "./providers";
-import type { Provider, ProviderId } from "./providers";
-import { primeModels, reasoningDescriptions } from "./models";
+import { providers, providerList, isProviderId, hasApiKey } from "../core/providers";
+import type { Provider, ProviderId } from "../core/providers";
+import { primeModels, reasoningDescriptions } from "../core/models";
 import {
   REASONING_LEVELS,
   isReasoningLevel,
   type ReasoningLevel,
-} from "./reasoning";
-import { dispatch } from "./commands/registry";
-import type { ApprovalRequest } from "./chat";
+} from "../core/reasoning";
+import { dispatch } from "../core/commands/registry";
+import type { ApprovalRequest } from "../core/chat";
 import {
   createSession,
   findSessionsByIdPrefix,
   listSessions,
   saveSession,
-} from "./session";
-import type { Session } from "./session";
+} from "../core/session";
+import type { Session } from "../core/session";
 import {
   configPath,
   loadConfig,
@@ -42,23 +42,23 @@ import {
   removeSkillFromConfig,
   saveTheme,
   type Config,
-} from "./config";
-import { resolveTheme } from "./theme";
+} from "../core/config";
+import { resolveTheme } from "../core/theme";
 import { ThemeProvider } from "./components/themeContext";
 import ThemePicker from "./components/themePicker";
 import ReasoningPicker from "./components/reasoningPicker";
-import type { Skill } from "./skills";
+import type { Skill } from "../core/skills";
 import { runTurn } from "./runTurn";
-import type { AskUserRequest } from "./tools";
+import type { AskUserRequest } from "../core/tools";
 import {
   connectMcpServers,
   closeMcpClients,
   emptyMcpRuntime,
   type McpRuntime,
   type McpServerConfig,
-} from "./mcp";
-import { loginMcpServer } from "./mcpOAuth";
-import { historyChars, type CommandContext, type Entry } from "./commands/type";
+} from "../core/mcp";
+import { loginMcpServer } from "../core/mcpOAuth";
+import { historyChars, type CommandContext, type Entry } from "../core/commands/type";
 
 // Committing per token re-parses the markdown and re-pins the sticky scroll on
 // every token, which makes long replies lag and jump. Coalesce to ~30fps.

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { TextAttributes, type ScrollBoxRenderable } from "@opentui/core";
-import type { ApprovalRequest } from "../chat";
+import type { ApprovalRequest } from "../../core/chat";
 import { visualizeControls } from "../sanitize";
 import { useTheme } from "./themeContext";
 

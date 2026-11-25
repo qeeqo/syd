@@ -1,23 +1,28 @@
-import type { Command } from "../commands/type";
+import type { Skill } from "../../core/skills";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 
-type CommandSuggestionsProps = {
-  items: Command[];
+type MentionSuggestionsProps = {
+  items: Skill[];
   selectedIndex: number;
 };
 
 const MAX_VISIBLE = 6;
 
-export default function CommandSuggestions({
+function hint(skill: Skill): string {
+  const firstLine = skill.instructions.split("\n", 1)[0].trim();
+  return firstLine.length > 60 ? `${firstLine.slice(0, 59)}…` : firstLine;
+}
+
+export default function MentionSuggestions({
   items,
   selectedIndex,
-}: CommandSuggestionsProps) {
+}: MentionSuggestionsProps) {
   const t = useTheme();
   const total = items.length;
   const start = Math.max(0, selectedIndex - (MAX_VISIBLE - 1));
   const visible = items.slice(start, start + MAX_VISIBLE);
-  const nameWidth = items.reduce((w, c) => Math.max(w, c.name.length), 0);
+  const nameWidth = items.reduce((w, s) => Math.max(w, s.name.length), 0);
   const hiddenBelow = total - (start + visible.length);
 
   return (
@@ -30,27 +35,29 @@ export default function CommandSuggestions({
       flexShrink={0}
       marginBottom={0}
     >
-      {visible.map((cmd, i) => {
+      {visible.map((skill, i) => {
         const selected = start + i === selectedIndex;
+        const h = hint(skill);
         return (
           <box
-            key={cmd.name}
+            key={skill.name}
             paddingX={1}
             flexDirection="row"
             backgroundColor={selected ? t.selectionBg : undefined}
           >
             <text fg={selected ? t.textSelected : t.accent}>
-              /{cmd.name.padEnd(nameWidth, " ")}
+              @{skill.name.padEnd(nameWidth, " ")}
             </text>
-            <text fg={selected ? t.textSecondary : t.textMuted}>
-              {"  "}
-              {cmd.description}
-            </text>
+            {h.length > 0 && (
+              <text fg={selected ? t.textSecondary : t.textMuted}>
+                {"  "}
+                {h}
+              </text>
+            )}
           </box>
         );
       })}
-      {/* Occupied even at "0 more": a conditional row would change the popup
-          height mid-scroll and make the whole box jump. */}
+      {/* Constant height so the box doesn't jump while scrolling. */}
       {total > MAX_VISIBLE && (
         <text fg={t.textFaint}>
           {hiddenBelow > 0 ? ` ↓ ${hiddenBelow} more` : " "}
@@ -58,7 +65,7 @@ export default function CommandSuggestions({
       )}
       <text fg={t.textHint} marginTop={1}>
         {" "}
-        ↵ run · tab complete · esc dismiss
+        ↵/tab insert · esc dismiss
       </text>
     </overlay-box>
   );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useKeyboard } from "@opentui/react";
-import type { Session } from "../session";
+import type { Session } from "../../core/session";
 import { useTheme } from "./themeContext";
 import "./overlayBox";
 

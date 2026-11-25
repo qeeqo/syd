@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { visualizeControls } from "../sanitize";
+import { visualizeControls } from "../tui/sanitize";
 
 describe("visualizeControls", () => {
   test("leaves ordinary text untouched", () => {
