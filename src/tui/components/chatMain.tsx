@@ -122,6 +122,29 @@ function GlowLoader() {
   );
 }
 
+const REPLY_MARK = "✦";
+const MARK_PULSE_STEPS = 12;
+
+// Its own component so the pulse re-renders only the glyph, never the markdown.
+function ReplyMark({ streaming }: { streaming: boolean }) {
+  const t = useTheme();
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!streaming) return;
+    const timer = setInterval(() => setTick((n) => n + 1), GLOW_TICK_MS);
+    return () => clearInterval(timer);
+  }, [streaming]);
+
+  const glow = streaming
+    ? 0.5 + 0.5 * Math.cos((tick / MARK_PULSE_STEPS) * 2 * Math.PI)
+    : 1;
+  return (
+    <text fg={mixColor(t.textFaint, t.accent, glow)} attributes={TextAttributes.BOLD}>
+      {REPLY_MARK}
+    </text>
+  );
+}
+
 type ChatMainProps = {
   entries: Entry[];
   streaming: boolean;
@@ -277,18 +300,19 @@ const EntryBlock = memo(function EntryBlock({
     case "assistant":
       if (entry.text.length === 0) return null;
       return (
-        <box flexDirection="column" width="100%">
-          <box flexDirection="row" gap={1}>
-            <text fg={t.accent} attributes={TextAttributes.BOLD}>
-              syd
-            </text>
+        // A gutter column, not a text prefix, so wrapped lines and code blocks
+        // align under the reply instead of under the glyph.
+        <box flexDirection="row" width="100%">
+          <box width={2} flexShrink={0}>
+            <ReplyMark streaming={streaming} />
           </box>
           <markdown
             content={entry.text}
             syntaxStyle={syntaxStyle}
             fg={t.text}
             streaming={streaming}
-            width="100%"
+            flexGrow={1}
+            flexShrink={1}
           />
         </box>
       );

@@ -5,7 +5,7 @@ skills, opt-in shell access, and a themed TUI, with human approval in front of
 anything that changes your machine.
 
 <p align="center">
-  <img src="assets/demo1.png" alt="demo1" width="700">
+  <img src="assets/Syd_demo__updated" alt="demo1" width="700">
 
 > [!NOTE]
 > **syd is alpha and not installable yet.** There is no published package and no
